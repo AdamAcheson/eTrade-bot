@@ -80,7 +80,7 @@ class ETradeMarketDataProvider(MarketDataProvider):
         forming = self._forming.get(ticker)
         if forming is None or forming.bar_start != bar_start:
             if forming is not None:
-                self._close_bar(ticker, forming)
+                self._close_bar(ticker, forming, now)
             self._forming[ticker] = _FormingBar(
                 bar_start=bar_start,
                 open=last_price,
@@ -96,7 +96,7 @@ class ETradeMarketDataProvider(MarketDataProvider):
             forming.close = last_price
             forming.last_cumulative_volume = cumulative_volume
 
-    def _close_bar(self, ticker: str, forming: _FormingBar) -> None:
+    def _close_bar(self, ticker: str, forming: _FormingBar, now: datetime) -> None:
         bar_volume = max(forming.last_cumulative_volume - forming.volume_at_bar_open, 0.0)
         bar = Bar(
             timestamp=forming.bar_start,
@@ -106,14 +106,21 @@ class ETradeMarketDataProvider(MarketDataProvider):
             close=forming.close,
             volume=bar_volume,
         )
-        self._inner.push_bar(ticker, bar)
+        # received_at must be the current wall-clock time (freshness of the data we
+        # just polled), not forming.bar_start (which can be minutes old) -- and it
+        # must carry the same tzinfo-awareness as `now` everywhere else, or
+        # is_stale()'s (now - received_at) subtraction raises TypeError. This
+        # previously defaulted to a naive datetime.utcnow() here, which clobbered
+        # the tz-aware timestamp push_quote had just set moments earlier in the
+        # same poll() call -- confirmed by a live run against real sandbox quotes.
+        self._inner.push_bar(ticker, bar, received_at=now)
 
-    def flush_forming_bar(self, ticker: str) -> None:
+    def flush_forming_bar(self, ticker: str, now: Optional[datetime] = None) -> None:
         """Force-close whatever bar is currently in progress. Useful at end-of-day
         so the last partial bar isn't silently dropped."""
         forming = self._forming.pop(ticker, None)
         if forming is not None:
-            self._close_bar(ticker, forming)
+            self._close_bar(ticker, forming, now or datetime.utcnow())
 
     def set_average_volume_baseline(self, ticker: str, baseline: float) -> None:
         self._inner.set_average_volume_baseline(ticker, baseline)

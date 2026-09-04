@@ -69,6 +69,27 @@ def test_flush_forming_bar_closes_partial_bar():
     assert bars[0].volume == 10_000
 
 
+def test_is_stale_works_correctly_after_a_bar_closes():
+    """Regression test: _close_bar previously called push_bar without received_at,
+    silently defaulting to a naive datetime.utcnow() and clobbering the tz-aware
+    timestamp push_quote had just set moments earlier in the same poll() call --
+    causing is_stale() to raise "can't subtract offset-naive and offset-aware
+    datetimes" the first time a bar closed during a live run."""
+    adapter = FakeAdapter([
+        q(10.00, 10.01, 10.00, 100_000),
+        q(10.05, 10.06, 10.05, 120_000),
+    ])
+    provider = ETradeMarketDataProvider(adapter, bar_interval_seconds=300)
+    t0 = datetime(2026, 3, 2, 9, 30, 0, tzinfo=timezone.utc)
+    provider.poll("AG", now=t0)
+    # crosses into the next 5-minute window -> triggers a bar close internally
+    t1 = t0.replace(minute=35, second=1)
+    provider.poll("AG", now=t1)
+
+    assert provider.is_stale("AG", staleness_limit_seconds=30, now=t1) is False
+    assert provider.is_stale("AG", staleness_limit_seconds=30, now=t1.replace(minute=40)) is True
+
+
 def test_is_connected_delegates_to_adapter():
     adapter = FakeAdapter([])
     provider = ETradeMarketDataProvider(adapter)
