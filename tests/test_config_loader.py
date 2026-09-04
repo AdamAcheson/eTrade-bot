@@ -73,6 +73,43 @@ def test_sandbox_mode_loads_when_etrade_environment_is_sandbox(tmp_path):
     assert config.broker["mode"] == "sandbox"
 
 
+def test_market_data_source_defaults_to_memory(tmp_path):
+    config_dir = write_config_dir(tmp_path, "mode: paper\npaper:\n  starting_equity: 100000\n  fill_model: touch\n")
+    config = load_config(config_dir)
+    assert config.broker.get("market_data_source", "memory") == "memory"
+
+
+def test_market_data_source_etrade_requires_sandbox_environment(tmp_path):
+    config_dir = write_config_dir(
+        tmp_path,
+        "mode: paper\npaper:\n  starting_equity: 100000\n  fill_model: touch\n"
+        "market_data_source: etrade\netrade:\n  environment: production\n",
+    )
+    with pytest.raises(ConfigError):
+        load_config(config_dir)
+
+
+def test_market_data_source_etrade_with_paper_broker_loads(tmp_path):
+    config_dir = write_config_dir(
+        tmp_path,
+        "mode: paper\npaper:\n  starting_equity: 100000\n  fill_model: touch\n"
+        "market_data_source: etrade\netrade:\n  environment: sandbox\n  consumer_key_env: X\n"
+        "  consumer_secret_env: Y\n  oauth_token_env: Z\n  oauth_token_secret_env: W\n  account_id_env: V\n",
+    )
+    config = load_config(config_dir)
+    assert config.broker["mode"] == "paper"
+    assert config.broker["market_data_source"] == "etrade"
+
+
+def test_unrecognized_market_data_source_is_rejected(tmp_path):
+    config_dir = write_config_dir(
+        tmp_path,
+        "mode: paper\npaper:\n  starting_equity: 100000\n  fill_model: touch\nmarket_data_source: bogus\n",
+    )
+    with pytest.raises(ConfigError):
+        load_config(config_dir)
+
+
 def test_approved_universe_excludes_strategy_excluded_tickers(tmp_path):
     tickers_yaml = MINIMAL_TICKERS + """
   AQN:

@@ -326,23 +326,37 @@ def _parse_timeframe_seconds(timeframe: str) -> int:
 
 
 def build_default_bot(config: Optional[AppConfig] = None) -> TradingBot:
-    """Builds a bot per broker.yaml: mode. "paper" (default) uses the fully
-    simulated in-memory provider + PaperBrokerAdapter. "sandbox" makes real network
-    calls to E*TRADE's sandbox API (see broker/etrade.py, data/etrade_market_data.py)
-    using credentials from your local environment -- nothing else is reachable
-    (config_loader.load_config already rejects any other mode)."""
+    """Builds a bot per broker.yaml: mode (which broker executes orders) and
+    market_data_source (where quotes/bars come from) -- these are independent
+    settings. "paper" mode always uses PaperBrokerAdapter for orders/fills/P&L.
+    "sandbox" mode uses ETradeBrokerAdapter for real (sandbox) order placement.
+    market_data_source: "etrade" polls E*TRADE's real quote endpoint regardless of
+    which broker is active -- e.g. mode: paper + market_data_source: etrade watches
+    the strategy evaluate real sandbox quotes while keeping fills/P&L in the local
+    simulator, since E*TRADE's sandbox doesn't realistically track order/position
+    state itself (see docs/ARCHITECTURE.md section 11). Nothing here can reach
+    production -- config_loader.load_config already enforces that independently for
+    both settings."""
     config = config or load_config()
     mode = config.broker["mode"]
+    market_data_source = config.broker.get("market_data_source", "memory")
 
     if mode == "sandbox":
         broker: BrokerInterface = ETradeBrokerAdapter(config.broker)
-        bar_seconds = _parse_timeframe_seconds(config.strategy["candle_timeframe"])
-        data_provider: MarketDataProvider = ETradeMarketDataProvider(broker, bar_interval_seconds=bar_seconds)
+        quote_source = broker
     else:
         broker = PaperBrokerAdapter(
             starting_equity=config.broker["paper"]["starting_equity"],
             fill_model=config.broker["paper"]["fill_model"],
         )
+        quote_source = None
+
+    if market_data_source == "etrade":
+        if quote_source is None:
+            quote_source = ETradeBrokerAdapter(config.broker)
+        bar_seconds = _parse_timeframe_seconds(config.strategy["candle_timeframe"])
+        data_provider: MarketDataProvider = ETradeMarketDataProvider(quote_source, bar_interval_seconds=bar_seconds)
+    else:
         data_provider = InMemoryMarketDataProvider()
 
     signal_journal = SignalJournal("logs/signals.jsonl")

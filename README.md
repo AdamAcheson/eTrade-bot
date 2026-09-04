@@ -23,8 +23,12 @@ safeguards that keep live/production trading disabled.
   makes real HTTP calls to E*TRADE's documented sandbox API (accounts, orders,
   quotes) using OAuth1 (`broker/etrade_auth.py`). Since E*TRADE's API has no
   historical-bar endpoint, `data/etrade_market_data.py` builds 5-minute bars itself
-  by polling quotes. **This has not been exercised against a real sandbox account**
-  -- see "Connecting to E*TRADE sandbox" below before you trust it.
+  by polling quotes. **Verified against a real sandbox account**: account balance,
+  positions, quotes, and order placement (preview -> place) all confirmed working
+  (two real response-parsing bugs were found and fixed this way). Note: E*TRADE's
+  sandbox does not realistically track state between calls -- placing an order
+  doesn't change what a later `GET /orders` returns -- so it validates the API
+  integration itself, not realistic account behavior over time.
 * **Phase 3 -- Strategy evaluation**: `reporting/daily_report.py` produces the daily
   report (win rate, R multiples, drawdown, missed-opportunity analysis) and
   read-only feedback-loop suggestions.
@@ -50,6 +54,33 @@ safeguards that keep live/production trading disabled.
    anything else with `ETradeBrokerAdapter`.
 6. E*TRADE access tokens expire at midnight US Eastern or after 2 hours idle --
    re-run step 3 when that happens.
+
+Other scripts once you're connected: `scripts/etrade_status.py` (read-only account
+balance/positions/orders with live unrealized P&L), `scripts/etrade_test_order.py`
+(places one confirmed-by-hand test order).
+
+## Running the live bot loop
+
+`scripts/run_bot.py` actually starts the continuous polling loop described in
+`docs/ARCHITECTURE.md` section 10 -- it's the only entry point that does (running
+`src/main.py` directly just prints a status message). It requires
+`config/broker.yaml: market_data_source: etrade`, which is independent of `mode`:
+
+* `mode: paper` + `market_data_source: etrade` -- real E*TRADE sandbox quotes drive
+  the strategy, but fills/P&L stay in the local `PaperBrokerAdapter` (useful because
+  E*TRADE's sandbox doesn't track order/position state realistically, per above).
+* `mode: sandbox` + `market_data_source: etrade` -- same real quotes, but orders
+  also actually go to E*TRADE.
+
+```
+python scripts/run_bot.py [poll_interval_seconds]   # default 30s, Ctrl+C to stop
+```
+
+Known limitation: there's no historical daily-volume feed wired up, so relative
+volume (RVOL) reads as unavailable and most signals will reject on
+`REJECTED_LOW_VOLUME` -- this run validates that the full pipeline (poll -> bars ->
+indicators -> strategy -> risk -> logging) executes continuously against a real
+broker connection, not that it will find live entries with wiring this thin.
 
 `src/main.py` still doesn't start a live loop when run directly, in either mode --
 running `python src/main.py` prints a status message and exits.

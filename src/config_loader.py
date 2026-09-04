@@ -106,6 +106,17 @@ def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> AppConfig:
             "call to E*TRADE is made."
         )
 
+    ALLOWED_MARKET_DATA_SOURCES = {"memory", "etrade"}
+    market_data_source = broker.get("market_data_source", "memory")
+    if market_data_source not in ALLOWED_MARKET_DATA_SOURCES:
+        raise ConfigError(f"broker.yaml market_data_source must be one of {sorted(ALLOWED_MARKET_DATA_SOURCES)}.")
+    if market_data_source == "etrade" and broker.get("etrade", {}).get("environment") != "sandbox":
+        raise ConfigError(
+            "broker.yaml market_data_source is 'etrade' but etrade.environment is not "
+            "'sandbox' -- quote polling independently requires the same sandbox-only "
+            "guarantee as order placement does, regardless of broker mode."
+        )
+
     tickers: Dict[str, TickerConfig] = {}
     for symbol, raw in (tickers_raw.get("tickers") or {}).items():
         tickers[symbol] = TickerConfig(

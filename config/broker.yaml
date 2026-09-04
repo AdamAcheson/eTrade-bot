@@ -6,6 +6,19 @@
 mode: paper   # paper (default, fully simulated) | sandbox (real E*TRADE sandbox API,
               # fake sandbox money) | live -- "live" always raises at startup.
 
+# Independent of `mode` above: where does market data (quotes/bars) come from?
+#   memory (default) -- InMemoryMarketDataProvider; nothing arrives unless a caller
+#                        (tests, a backtest driver) explicitly pushes bars/quotes.
+#   etrade            -- ETradeMarketDataProvider polls E*TRADE's real quote endpoint
+#                         and builds bars from it (see data/etrade_market_data.py).
+#                         Requires etrade.environment: sandbox below, same as
+#                         mode: sandbox does -- this is checked independently.
+# `mode: paper` + `market_data_source: etrade` is the useful combo for watching the
+# strategy evaluate real (sandbox) quotes while still using the local simulated
+# broker for fills/P&L bookkeeping, since E*TRADE's sandbox itself does not
+# realistically track order/position state (see docs/ARCHITECTURE.md section 11).
+market_data_source: memory   # memory | etrade
+
 paper:
   starting_equity: 100000
   fill_model: touch   # a resting limit order fills once the quote touches/crosses it
