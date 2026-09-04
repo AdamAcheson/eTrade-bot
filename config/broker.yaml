@@ -1,20 +1,25 @@
 # Broker selection. See docs/ARCHITECTURE.md section 7 and section 11 ("what could ever
-# place a real order"). ONLY "paper" is implemented. config_loader.py raises a
-# ConfigError at startup if mode != "paper".
+# place a real order"). config_loader.py raises a ConfigError at startup unless mode
+# is "paper" or "sandbox" -- "live"/production is not implemented anywhere in this
+# codebase, and switching mode alone can never reach it.
 
-mode: paper   # paper | live  -- "live" is not implemented in any phase shipped so far
+mode: paper   # paper (default, fully simulated) | sandbox (real E*TRADE sandbox API,
+              # fake sandbox money) | live -- "live" always raises at startup.
 
 paper:
   starting_equity: 100000
   fill_model: touch   # a resting limit order fills once the quote touches/crosses it
 
 etrade:
-  # This block is inert configuration only -- broker/etrade.py has no HTTP client and
-  # every ETradeBrokerAdapter method raises NotImplementedError. Sandbox vs production
-  # will eventually be selected by environment + this block together; production will
-  # additionally require ETRADE_ENV=production. Credentials are never stored here --
-  # only the NAMES of the environment variables that would hold them.
-  environment: sandbox   # sandbox | production
+  # broker/etrade.py (ETradeBrokerAdapter) implements real HTTP calls to E*TRADE's
+  # SANDBOX API ONLY -- its constructor raises ETradeSafetyError if
+  # etrade.environment is anything other than "sandbox". Nothing in this codebase
+  # can reach api.etrade.com (production). To actually use it: set `mode: sandbox`
+  # above, run scripts/etrade_authorize.py once to obtain an access token, and put
+  # all five credential values in your local .env (see .env.example) -- never here.
+  # Credentials are never stored in this file -- only the NAMES of the environment
+  # variables that hold them.
+  environment: sandbox   # sandbox | production -- "production" is never accepted
   consumer_key_env: ETRADE_SANDBOX_CONSUMER_KEY
   consumer_secret_env: ETRADE_SANDBOX_CONSUMER_SECRET
   oauth_token_env: ETRADE_SANDBOX_OAUTH_TOKEN

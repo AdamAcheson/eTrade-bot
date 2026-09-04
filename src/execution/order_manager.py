@@ -68,3 +68,15 @@ class OrderManager:
         self.position_manager.mark_order_pending(ticker)
         order = self.broker.submit_limit_order(ticker, OrderSide.BUY, shares, planned_limit_price)
         return OrderSubmitResult(True, order=order)
+
+    def submit_exit_order(self, ticker: str, shares: int, limit_price: float) -> OrderSubmitResult:
+        """Submit a SELL to actually flatten (or partially flatten) a position at the
+        broker -- stop/target/EOD/overnight-reduction exits must go through this, not
+        just PositionManager bookkeeping, or the broker's own position/cash state
+        never reflects the exit. `limit_price` should be a marketable price (e.g. the
+        current bid) since the position needs to close now, not the entry-style
+        "wait for a good fill" limit."""
+        if shares <= 0:
+            return OrderSubmitResult(False, rejection_reason="zero_shares")
+        order = self.broker.submit_limit_order(ticker, OrderSide.SELL, shares, limit_price)
+        return OrderSubmitResult(True, order=order)

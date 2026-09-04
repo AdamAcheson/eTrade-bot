@@ -2,14 +2,16 @@
 
 This document is the "first task" deliverable required before implementation: proposed
 architecture, file tree, data models, config schemas, the ticker state machine, and
-pseudocode for the main loop. Phase 1 (market data models + indicators + signal engine,
-no order placement) is implemented on top of this design.
+pseudocode for the main loop. Phase 1 (market data models + indicators + signal engine)
+and Phase 2 (paper trading, plus a real E*TRADE sandbox connection) are implemented on
+top of this design.
 
 ## 1. Design Principles
 
-- **Paper trading is the only mode that can execute today.** There is no code path that
-  can reach a real brokerage endpoint. `broker/etrade.py` exists only as an
-  interface-shaped stub that raises `NotImplementedError` on every method.
+- **Paper trading is the default; E*TRADE sandbox is the only other reachable mode.**
+  `broker/etrade.py`'s `ETradeBrokerAdapter` makes real HTTP calls to E*TRADE's
+  documented sandbox API, but its constructor raises `ETradeSafetyError` for any
+  `environment` other than `"sandbox"` -- there is no code path to production.
 - **Strict layering.** `MarketDataProvider` → `StrategyEngine` (benchmark + setups +
   scoring) → `RiskManager` → `ExecutionEngine` (`OrderManager`) → `PositionManager` →
   `Journal` / `ReportingEngine`. Strategy code never imports a broker or a specific data
@@ -41,7 +43,9 @@ eTrade-bot/
 │   │   └── position.py            # Position (open-trade working state)
 │   ├── data/
 │   │   ├── market_data.py         # MarketDataProvider ABC, TickerMarketState, in-memory impl
-│   │   └── indicators.py          # VWAP, EMA, ATR, RVOL, opening range, spread, swings
+│   │   ├── indicators.py          # VWAP, EMA, ATR, RVOL, opening range, spread, swings
+│   │   └── etrade_market_data.py  # polls E*TRADE quotes, aggregates into 5-min bars itself
+│   │                               #   (E*TRADE's API has no historical-bar endpoint)
 │   ├── strategy/
 │   │   ├── benchmark.py           # benchmark confirmation rule
 │   │   ├── setups.py              # ORB+pullback, VWAP reclaim, chase/overextension rule
@@ -59,10 +63,15 @@ eTrade-bot/
 │   ├── broker/
 │   │   ├── base.py                # BrokerInterface ABC
 │   │   ├── paper.py                # PaperBrokerAdapter (simulated fills, default broker)
-│   │   └── etrade.py               # ETradeBrokerAdapter STUB — not implemented, not enabled
+│   │   ├── etrade_auth.py          # OAuth1 3-legged flow (request/authorize/access token)
+│   │   └── etrade.py               # ETradeBrokerAdapter — real sandbox calls, environment
+│   │                               #   must be "sandbox" or the constructor refuses to run
 │   └── reporting/
 │       ├── journal.py             # per-signal log + per-trade journal (CSV/JSONL)
 │       └── daily_report.py        # daily/cumulative performance + missed-opportunity report
+├── scripts/
+│   ├── etrade_authorize.py        # run LOCALLY: interactive OAuth dance (needs a browser)
+│   └── etrade_sandbox_check.py    # run LOCALLY: read-only connectivity check, no orders
 ├── tests/
 ├── logs/
 ├── reports/
@@ -233,23 +242,32 @@ emergency:
 ## 7. `config/broker.yaml` schema
 
 ```yaml
-mode: paper   # paper | live  -- ONLY "paper" is implemented; "live" raises at startup
+mode: paper   # paper (default) | sandbox | live -- config_loader.load_config()
+              # raises ConfigError for anything except paper/sandbox; "live" always
+              # raises regardless of what else is in this file.
 
 paper:
   starting_equity: 100000
   fill_model: touch   # limit order fills when quote touches/crosses the limit price
 
 etrade:
-  # Sandbox vs production is an explicit, separate config block. No code path reads
-  # production credentials or a production base URL in Phase 1/2 — ETradeBrokerAdapter
-  # is a stub. When implemented later, this block will point at E*TRADE's documented
-  # sandbox OAuth/API base URLs; production activation will require both
-  # ETRADE_ENV=production in the environment AND an explicit `mode: live` here.
-  environment: sandbox
+  # Sandbox vs production is an explicit, separate switch from `mode` above, and
+  # BOTH must agree (config_loader checks this) before ETradeBrokerAdapter is even
+  # constructed. ETradeBrokerAdapter's own constructor independently raises
+  # ETradeSafetyError for any environment other than "sandbox" -- there is no
+  # single config change that reaches api.etrade.com (production).
+  environment: sandbox   # sandbox | production -- "production" is never accepted
   consumer_key_env: ETRADE_SANDBOX_CONSUMER_KEY
   consumer_secret_env: ETRADE_SANDBOX_CONSUMER_SECRET
+  oauth_token_env: ETRADE_SANDBOX_OAUTH_TOKEN
+  oauth_token_secret_env: ETRADE_SANDBOX_OAUTH_TOKEN_SECRET
   account_id_env: ETRADE_SANDBOX_ACCOUNT_ID
 ```
+
+`oauth_token_env`/`oauth_token_secret_env` hold the per-session access token
+obtained by running `scripts/etrade_authorize.py` locally (spec section 36: OAuth
+requires a human with a browser -- this cannot be automated by an assistant). See
+the README's "Connecting to E*TRADE sandbox" section for the full setup sequence.
 
 ## 8. `config/schedule.yaml` schema
 
@@ -360,26 +378,42 @@ end_of_day:
     daily_report.generate(signal_log, trade_journal, date)
 ```
 
-`main.py` in Phase 1 wires this together against the in-memory/replay data provider and
-the paper broker only — there is no network call to a real market-data vendor or to
-E*TRADE yet. That is intentionally deferred to the "connect to sandbox" step, after
-Phase 1's models/indicators/strategy/risk/tests are in place, per spec §36.
+`build_default_bot()` in `main.py` wires the pipeline against either the in-memory
+provider + `PaperBrokerAdapter` (default) or `ETradeMarketDataProvider` +
+`ETradeBrokerAdapter` when `broker.yaml: mode: sandbox` -- the latter makes real
+network calls to E*TRADE's sandbox API. Neither path can reach production.
 
 ## 11. What Could Ever Place a Real Order (spec §37)
 
-- Only `broker/etrade.py::ETradeBrokerAdapter` could ever reach E*TRADE's network API,
-  and every method in it currently raises `NotImplementedError`. There is no HTTP client
-  configured in it.
-- `broker/base.py::BrokerInterface` is the only type `OrderManager` depends on; `main.py`
-  hard-fails at startup unless `broker.yaml: mode == "paper"`, which is enforced in
-  `src/config_loader.py` (`ConfigError` if `mode != "paper"`), and `PaperBrokerAdapter`
-  is the only adapter implemented, so there is no path that can currently submit a real
-  order.
-- Sandbox vs. production is selected by two independent switches that must **both** be
-  set once E*TRADE integration exists: `broker.yaml: mode: live` AND
-  `ETRADE_ENV=production` in the environment. Phase 1/2 ship with neither wired to
-  anything live.
+- `broker/etrade.py::ETradeBrokerAdapter` is the only type that can reach E*TRADE's
+  network API at all. Its constructor raises `ETradeSafetyError` immediately unless
+  `broker.yaml: etrade.environment == "sandbox"` -- there is no configuration value
+  that makes it target `api.etrade.com` (production); the sandbox host
+  (`apisb.etrade.com`) is hard-coded as the only option.
+- `broker/base.py::BrokerInterface` is the only type `OrderManager`/`main.py` depend
+  on; `config_loader.load_config()` independently raises `ConfigError` unless
+  `broker.yaml: mode` is `"paper"` or `"sandbox"` -- "live" always raises, and when
+  `mode: sandbox` is set, `config_loader` also checks that
+  `etrade.environment == "sandbox"` agrees, so the two checks (config_loader's and
+  `ETradeBrokerAdapter`'s own) are independent and both must pass.
+- OAuth (`broker/etrade_auth.py`) requires a human with a browser to complete (E*TRADE
+  shows a one-time verifier code on a login page) -- this cannot be automated by an
+  assistant. `scripts/etrade_authorize.py` is meant to be run locally by a person;
+  nothing in the automated bot loop can silently obtain or renew credentials on its
+  own beyond calling `ETradeOAuth.renew_access_token` with an already-obtained token.
+- Real order submission (`ETradeBrokerAdapter.submit_limit_order`) always goes
+  through E*TRADE's documented preview-then-place two-call sequence -- there is no
+  single-call "place blind" path, so a preview response is always fetched first.
+- Exits (stop/target/EOD/overnight-reduction) are submitted as real SELL orders too
+  (`OrderManager.submit_exit_order`, called from `main.py`'s `_submit_exit_and_simulate`)
+  -- they don't just update local bookkeeping, which would leave a real broker
+  position open while the bot's records showed it closed.
 - The kill switch (`risk.yaml: emergency.kill_switch_enabled` + presence of
   `logs/KILL_SWITCH`) is checked every loop iteration in `main.py` and blocks all new
   entries; it does not touch position management/exit logic, which must still be able to
   flatten risk.
+- **Not yet live-tested.** `ETradeBrokerAdapter`'s response parsing was written
+  against E*TRADE's published API docs and cross-checked against the open-source
+  `pyetrade` client, but has not been run against a real sandbox account. Run
+  `scripts/etrade_sandbox_check.py` (read-only) first and confirm its output before
+  trusting any of this for order placement.

@@ -1,16 +1,23 @@
 """Wiring + event loop for the mining stock trading bot.
 
-PHASE 1 STATUS: this module wires the full pipeline (data -> strategy -> risk ->
-execution -> positions -> reporting) together and is exercised by the test suite, but
-it is NOT started against a real market-data feed or a real broker by running this
-file directly -- see `if __name__ == "__main__"` at the bottom. Doing that safely is a
-later phase (spec section 36, step 13): "Only then integrate an external brokerage
-sandbox." Running `python src/main.py` today prints a status message and exits.
+PHASE 1/2 STATUS: this module wires the full pipeline (data -> strategy -> risk ->
+execution -> positions -> reporting) together and is exercised by the test suite. By
+default (broker.yaml: mode: paper) it runs against an in-memory data provider and the
+simulated broker only. Running `python src/main.py` prints a status message and exits
+rather than starting a live loop either way -- see `if __name__ == "__main__"` below.
+
+`build_default_bot()` can also build a real (sandbox-only) E*TRADE-backed bot when
+broker.yaml: mode is "sandbox" -- see broker/etrade.py and data/etrade_market_data.py.
+That path makes real network calls to E*TRADE's sandbox API using credentials from
+your local environment; it still cannot reach production (see the safety notes in
+those two modules and in config_loader.py).
 
 Safety invariants enforced here (spec section 37):
-  * `config_loader.load_config()` raises if broker.yaml mode != "paper".
+  * `config_loader.load_config()` raises unless broker.yaml mode is "paper" or
+    "sandbox" -- "live"/production always raises.
   * The kill switch is checked every loop iteration before any new entry is allowed.
-  * `build_broker()` only ever constructs PaperBrokerAdapter.
+  * `build_default_bot()` only ever constructs PaperBrokerAdapter or
+    ETradeBrokerAdapter(environment="sandbox") -- nothing else.
 """
 
 from __future__ import annotations
@@ -21,8 +28,10 @@ from datetime import datetime, time as dtime
 from typing import Dict, List, Optional
 
 from broker.base import BrokerInterface
+from broker.etrade import ETradeBrokerAdapter
 from broker.paper import PaperBrokerAdapter
 from config_loader import AppConfig, load_config
+from data.etrade_market_data import ETradeMarketDataProvider
 from data.indicators import IndicatorSnapshot, compute_snapshot
 from data.market_data import InMemoryMarketDataProvider, MarketDataProvider
 from execution.order_manager import OrderManager
@@ -109,7 +118,7 @@ class TradingBot:
         if not state.bars or state.quote is None:
             return None
         strat = self.config.strategy
-        return compute_snapshot(
+        snapshot = compute_snapshot(
             state.bars,
             bid=state.quote.bid,
             ask=state.quote.ask,
@@ -119,6 +128,12 @@ class TradingBot:
             atr_period=strat["indicators"]["atr_period"],
             opening_range_bar_count=max(strat["setups"]["opening_range_minutes"] // 5, 1),
         )
+        # Use the live quote's last trade price as "current price" rather than the
+        # last CLOSED bar's close -- for a polling data provider (see
+        # data/etrade_market_data.py) the latest bar can be up to one bar-interval
+        # stale, but the quote itself is refreshed every poll.
+        snapshot.last_price = state.quote.last
+        return snapshot
 
     def evaluate_and_maybe_enter(self, ticker: str, now: datetime) -> None:
         ticker_cfg = self.config.tickers[ticker]
@@ -219,6 +234,7 @@ class TradingBot:
                 partial_exit_sell_fraction=strat["partial_exit"]["sell_fraction"],
             )
             if action.should_exit:
+                self._submit_exit_and_simulate(position.ticker, position.shares, snapshot.bid)
                 trade = self.position_manager.close_position(
                     position.ticker, now, action.exit_price, action.exit_reason
                 )
@@ -253,16 +269,32 @@ class TradingBot:
             hold_shares = shares_to_hold_overnight(position.shares, decision.size_multiplier)
             sell_shares = position.shares - hold_shares
             if sell_shares > 0:
+                self._submit_exit_and_simulate(position.ticker, sell_shares, stock_snapshot.bid)
                 position.apply_partial_exit(now, stock_snapshot.last_price, sell_shares, "overnight_size_reduction")
             position.overnight = True
             position.overnight_multiplier_applied = decision.size_multiplier
 
     def _exit_position(self, ticker: str, now: datetime, reason: ExitReason) -> None:
         snapshot = self._snapshot_for(ticker)
-        exit_price = snapshot.last_price if snapshot else self.position_manager.get_position(ticker).current_stop
+        position = self.position_manager.get_position(ticker)
+        exit_price = snapshot.last_price if snapshot else position.current_stop
+        if snapshot is not None:
+            self._submit_exit_and_simulate(ticker, position.shares, snapshot.bid)
         trade = self.position_manager.close_position(ticker, now, exit_price, reason)
         self.trade_journal.record(trade)
         self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, ticker)
+
+    def _submit_exit_and_simulate(self, ticker: str, shares: int, limit_price: float) -> None:
+        """Actually submit the SELL to the broker (spec section 32/17: exits must
+        reach the broker, not just PositionManager's bookkeeping). PaperBrokerAdapter
+        only fills resting orders when it next sees a quote (`process_quote`), so for
+        the simulated broker we feed it the current quote immediately -- an exit is
+        meant to happen now, not wait for the next unrelated poll to fill it."""
+        self.order_manager.submit_exit_order(ticker, shares, limit_price)
+        if isinstance(self.broker, PaperBrokerAdapter):
+            state = self.data_provider.get_state(ticker)
+            if state.quote is not None:
+                self.broker.process_quote(ticker, state.quote.bid, state.quote.ask)
 
     def run_cycle(self, now: datetime) -> None:
         """One pass over the approved universe -- see docs/ARCHITECTURE.md section 10
@@ -281,13 +313,38 @@ class TradingBot:
                 self.evaluate_and_maybe_enter(ticker, now)
 
 
+def _parse_timeframe_seconds(timeframe: str) -> int:
+    unit = timeframe[-1]
+    value = int(timeframe[:-1])
+    if unit == "s":
+        return value
+    if unit == "m":
+        return value * 60
+    if unit == "h":
+        return value * 3600
+    raise ValueError(f"unrecognized candle_timeframe: {timeframe!r}")
+
+
 def build_default_bot(config: Optional[AppConfig] = None) -> TradingBot:
+    """Builds a bot per broker.yaml: mode. "paper" (default) uses the fully
+    simulated in-memory provider + PaperBrokerAdapter. "sandbox" makes real network
+    calls to E*TRADE's sandbox API (see broker/etrade.py, data/etrade_market_data.py)
+    using credentials from your local environment -- nothing else is reachable
+    (config_loader.load_config already rejects any other mode)."""
     config = config or load_config()
-    data_provider = InMemoryMarketDataProvider()
-    broker = PaperBrokerAdapter(
-        starting_equity=config.broker["paper"]["starting_equity"],
-        fill_model=config.broker["paper"]["fill_model"],
-    )
+    mode = config.broker["mode"]
+
+    if mode == "sandbox":
+        broker: BrokerInterface = ETradeBrokerAdapter(config.broker)
+        bar_seconds = _parse_timeframe_seconds(config.strategy["candle_timeframe"])
+        data_provider: MarketDataProvider = ETradeMarketDataProvider(broker, bar_interval_seconds=bar_seconds)
+    else:
+        broker = PaperBrokerAdapter(
+            starting_equity=config.broker["paper"]["starting_equity"],
+            fill_model=config.broker["paper"]["fill_model"],
+        )
+        data_provider = InMemoryMarketDataProvider()
+
     signal_journal = SignalJournal("logs/signals.jsonl")
     trade_journal = TradeJournal("reports/trades.jsonl")
     return TradingBot(config, data_provider, broker, signal_journal, trade_journal)
@@ -296,9 +353,14 @@ def build_default_bot(config: Optional[AppConfig] = None) -> TradingBot:
 if __name__ == "__main__":
     print(
         "Phase 1/2 wiring is implemented (see TradingBot in src/main.py), but this "
-        "entry point does not start a live loop: there is no real market-data feed "
-        "or brokerage connection wired up yet, by design (spec sections 36-37).\n"
-        "Run the test suite instead: pytest tests/\n"
-        "To exercise the pipeline end-to-end, feed InMemoryMarketDataProvider bars/"
-        "quotes yourself (see tests/) and call TradingBot.run_cycle(now) in a loop."
+        "entry point does not start a live loop by design (spec sections 36-37).\n"
+        "Run the test suite instead: pytest tests/\n\n"
+        "To exercise the pipeline against the fully simulated broker, feed "
+        "InMemoryMarketDataProvider bars/quotes yourself (see tests/) and call "
+        "TradingBot.run_cycle(now) in a loop.\n\n"
+        "To connect to E*TRADE's SANDBOX (real network calls, fake sandbox money): "
+        "set broker.yaml: mode: sandbox, run scripts/etrade_authorize.py once "
+        "locally to get an access token, put all 5 ETRADE_SANDBOX_* credentials in "
+        "your local .env, then run scripts/etrade_sandbox_check.py (read-only) "
+        "before trusting build_default_bot()'s sandbox path for anything more."
     )

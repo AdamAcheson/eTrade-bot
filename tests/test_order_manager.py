@@ -123,6 +123,22 @@ def test_zero_shares_blocks_order():
     assert result.rejection_reason == "zero_shares"
 
 
+def test_submit_exit_order_success():
+    broker, position_manager, order_manager = make_manager()
+    result = order_manager.submit_exit_order("AG", shares=100, limit_price=10.05)
+    assert result.submitted
+    assert result.order.side == OrderSide.SELL
+    assert result.order.quantity == 100
+    assert result.order.limit_price == 10.05
+
+
+def test_submit_exit_order_zero_shares_rejected():
+    broker, position_manager, order_manager = make_manager()
+    result = order_manager.submit_exit_order("AG", shares=0, limit_price=10.05)
+    assert not result.submitted
+    assert result.rejection_reason == "zero_shares"
+
+
 def test_paper_broker_fills_on_touch():
     broker = PaperBrokerAdapter(starting_equity=100_000)
     order = broker.submit_limit_order("AG", OrderSide.BUY, 100, 10.40)

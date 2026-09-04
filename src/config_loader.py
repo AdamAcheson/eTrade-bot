@@ -91,10 +91,19 @@ def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> AppConfig:
     broker = _load_yaml(os.path.join(config_dir, "broker.yaml"))
     schedule = _load_yaml(os.path.join(config_dir, "schedule.yaml"))
 
-    if broker.get("mode") != "paper":
+    ALLOWED_BROKER_MODES = {"paper", "sandbox"}
+    if broker.get("mode") not in ALLOWED_BROKER_MODES:
         raise ConfigError(
-            "broker.yaml mode must be 'paper'. Live/production trading is not "
-            "implemented and must never be enabled by a config change alone."
+            f"broker.yaml mode must be one of {sorted(ALLOWED_BROKER_MODES)}. "
+            "Live/production trading is not implemented and must never be enabled "
+            "by a config change alone."
+        )
+    if broker["mode"] == "sandbox" and broker.get("etrade", {}).get("environment") != "sandbox":
+        raise ConfigError(
+            "broker.yaml mode is 'sandbox' but etrade.environment is not 'sandbox'. "
+            "Refusing to start: this is a second, independent safety check on top of "
+            "the one in broker/etrade.py -- both must agree before any real network "
+            "call to E*TRADE is made."
         )
 
     tickers: Dict[str, TickerConfig] = {}
