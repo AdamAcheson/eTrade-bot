@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+*.save
 logs/*.jsonl
 logs/KILL_SWITCH
 reports/*.jsonl
