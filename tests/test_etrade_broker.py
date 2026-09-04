@@ -184,6 +184,24 @@ def test_submit_limit_order_previews_then_places(fake_session, monkeypatch):
     assert place_call["json"]["PlaceOrderRequest"]["PreviewIds"] == [{"previewId": 987}]
 
 
+def test_submit_limit_order_handles_order_ids_as_a_list(fake_session, monkeypatch):
+    # Confirmed against a real E*TRADE sandbox response: OrderIds comes back as a
+    # LIST of {"orderId": N} objects, not a single orderId field.
+    monkeypatch.delenv("TEST_ETRADE_ACCOUNT_ID", raising=False)
+    _with_account(fake_session)
+    fake_session.set_response("POST", "/v1/accounts/key-111/orders/preview.json", 200, {
+        "PreviewOrderResponse": {"PreviewIds": [{"previewId": 987}]}
+    })
+    fake_session.set_response("POST", "/v1/accounts/key-111/orders/place.json", 200, {
+        "PlaceOrderResponse": {"OrderIds": [{"orderId": 529}]}
+    })
+
+    adapter = make_adapter()
+    order = adapter.submit_limit_order("AAPL", OrderSide.BUY, 1, 1.00)
+
+    assert order.order_id == "529"
+
+
 def test_cancel_order_sends_order_id(fake_session, monkeypatch):
     monkeypatch.delenv("TEST_ETRADE_ACCOUNT_ID", raising=False)
     _with_account(fake_session)

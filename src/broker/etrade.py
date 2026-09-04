@@ -60,6 +60,16 @@ class ETradeAPIError(Exception):
         self.body = body
 
 
+def _extract_order_id(place_resp: dict) -> str:
+    """PlaceOrderResponse.OrderIds comes back as a LIST of {"orderId": N} objects
+    (confirmed against a live sandbox response), not a single orderId field --
+    take the first one."""
+    order_ids = _find_first(place_resp, "PlaceOrderResponse.OrderIds", "PlaceOrderResponse.orderIds")
+    if isinstance(order_ids, dict):
+        order_ids = [order_ids]
+    return str(order_ids[0]["orderId"])
+
+
 def _find_first(d: dict, *paths: str):
     """Look up the first present key path (dot-separated) in a nested dict. E*TRADE's
     JSON responses nest fields differently across account/product types; this makes
@@ -285,7 +295,7 @@ class ETradeBrokerAdapter(BrokerInterface):
             json_body={"PlaceOrderRequest": place_body},
         )
 
-        order_id = str(_find_first(place_resp, "PlaceOrderResponse.OrderIds.orderId", "PlaceOrderResponse.orderIds.orderId"))
+        order_id = _extract_order_id(place_resp)
         self._client_order_ids[order_id] = client_order_id
         return Order(
             order_id=order_id,
@@ -326,7 +336,7 @@ class ETradeBrokerAdapter(BrokerInterface):
             f"/v1/accounts/{account_id_key}/orders/{order_id}/change/place.json",
             json_body={"PlaceOrderRequest": place_body},
         )
-        new_order_id = str(_find_first(place_resp, "PlaceOrderResponse.OrderIds.orderId", "PlaceOrderResponse.orderIds.orderId"))
+        new_order_id = _extract_order_id(place_resp)
         return Order(
             order_id=new_order_id,
             ticker=existing.ticker,
