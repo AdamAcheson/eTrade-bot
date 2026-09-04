@@ -1,0 +1,304 @@
+"""Wiring + event loop for the mining stock trading bot.
+
+PHASE 1 STATUS: this module wires the full pipeline (data -> strategy -> risk ->
+execution -> positions -> reporting) together and is exercised by the test suite, but
+it is NOT started against a real market-data feed or a real broker by running this
+file directly -- see `if __name__ == "__main__"` at the bottom. Doing that safely is a
+later phase (spec section 36, step 13): "Only then integrate an external brokerage
+sandbox." Running `python src/main.py` today prints a status message and exits.
+
+Safety invariants enforced here (spec section 37):
+  * `config_loader.load_config()` raises if broker.yaml mode != "paper".
+  * The kill switch is checked every loop iteration before any new entry is allowed.
+  * `build_broker()` only ever constructs PaperBrokerAdapter.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from datetime import datetime, time as dtime
+from typing import Dict, List, Optional
+
+from broker.base import BrokerInterface
+from broker.paper import PaperBrokerAdapter
+from config_loader import AppConfig, load_config
+from data.indicators import IndicatorSnapshot, compute_snapshot
+from data.market_data import InMemoryMarketDataProvider, MarketDataProvider
+from execution.order_manager import OrderManager
+from models.signal import Decision
+from models.trade import ExitReason
+from positions.overnight import evaluate_overnight_eligibility, shares_to_hold_overnight
+from positions.position_manager import PositionManager
+from reporting.daily_report import generate_daily_report
+from reporting.journal import SignalJournal, TradeJournal
+from risk.position_sizing import calc_position_size
+from risk.risk_manager import RiskManager
+from strategy.signal_engine import EvaluationContext, evaluate_ticker
+
+
+@dataclass
+class ScheduleWindow:
+    name: str
+    start: dtime
+    end: dtime
+    allow_new_entries: bool
+    min_score_key: Optional[str] = None
+
+
+def _parse_hhmm(s: str) -> dtime:
+    hh, mm = s.split(":")
+    return dtime(int(hh), int(mm))
+
+
+def build_schedule_windows(schedule_cfg: dict) -> List[ScheduleWindow]:
+    return [
+        ScheduleWindow(
+            name=w["name"],
+            start=_parse_hhmm(w["start"]),
+            end=_parse_hhmm(w["end"]),
+            allow_new_entries=w["allow_new_entries"],
+            min_score_key=w.get("min_score_key"),
+        )
+        for w in schedule_cfg["windows"]
+    ]
+
+
+def current_window(windows: List[ScheduleWindow], now: datetime) -> Optional[ScheduleWindow]:
+    now_t = now.time()
+    for w in windows:
+        if w.start <= now_t < w.end:
+            return w
+    return None
+
+
+def is_near_overnight_review(schedule_cfg: dict, now: datetime, tolerance_minutes: int = 1) -> bool:
+    review_t = _parse_hhmm(schedule_cfg["overnight_review_time"])
+    review_dt = now.replace(hour=review_t.hour, minute=review_t.minute, second=0, microsecond=0)
+    return abs((now - review_dt).total_seconds()) <= tolerance_minutes * 60
+
+
+class TradingBot:
+    """Owns the wiring described in docs/ARCHITECTURE.md section 10. Every dependency
+    is injected so tests can drive it with fakes/in-memory implementations."""
+
+    def __init__(
+        self,
+        config: AppConfig,
+        data_provider: MarketDataProvider,
+        broker: BrokerInterface,
+        signal_journal: SignalJournal,
+        trade_journal: TradeJournal,
+    ) -> None:
+        self.config = config
+        self.data_provider = data_provider
+        self.broker = broker
+        self.signal_journal = signal_journal
+        self.trade_journal = trade_journal
+
+        self.risk_manager = RiskManager(config.risk)
+        self.position_manager = PositionManager(
+            max_concurrent_positions=config.risk["behavior"]["max_concurrent_positions"],
+            pyramiding=config.risk["behavior"]["pyramiding"],
+        )
+        self.order_manager = OrderManager(broker, self.position_manager)
+        self.schedule_windows = build_schedule_windows(config.schedule)
+
+    def _snapshot_for(self, ticker: str) -> Optional[IndicatorSnapshot]:
+        state = self.data_provider.get_state(ticker)
+        if not state.bars or state.quote is None:
+            return None
+        strat = self.config.strategy
+        return compute_snapshot(
+            state.bars,
+            bid=state.quote.bid,
+            ask=state.quote.ask,
+            average_volume_baseline=state.average_volume_baseline,
+            ema_fast_period=strat["indicators"]["ema_fast"],
+            ema_slow_period=strat["indicators"]["ema_slow"],
+            atr_period=strat["indicators"]["atr_period"],
+            opening_range_bar_count=max(strat["setups"]["opening_range_minutes"] // 5, 1),
+        )
+
+    def evaluate_and_maybe_enter(self, ticker: str, now: datetime) -> None:
+        ticker_cfg = self.config.tickers[ticker]
+        window = current_window(self.schedule_windows, now)
+
+        stock_snapshot = self._snapshot_for(ticker)
+        bench_snapshot = self._snapshot_for(ticker_cfg.benchmark)
+        stock_state = self.data_provider.get_state(ticker)
+        bench_state = self.data_provider.get_state(ticker_cfg.benchmark)
+
+        staleness_limit = self.config.risk["safety"]["data_staleness_limit_seconds"]
+        data_stale = (
+            stock_snapshot is None
+            or bench_snapshot is None
+            or self.data_provider.is_stale(ticker, staleness_limit, now)
+            or self.data_provider.is_stale(ticker_cfg.benchmark, staleness_limit, now)
+        )
+        if data_stale:
+            return
+
+        min_score = self.config.strategy["scoring"]["minimum_entry_score"].get(
+            window.min_score_key if window else "midday_window", 80
+        )
+
+        ctx = EvaluationContext(
+            ticker=ticker,
+            benchmark=ticker_cfg.benchmark,
+            bars=stock_state.bars,
+            benchmark_bars=bench_state.bars,
+            snapshot=stock_snapshot,
+            benchmark_snapshot=bench_snapshot,
+            max_spread_pct=ticker_cfg.max_spread_pct,
+            volatility_category=ticker_cfg.volatility_category,
+            manual_only=ticker_cfg.manual_only,
+            allow_new_entries=bool(window and window.allow_new_entries),
+            minimum_entry_score=min_score,
+            now=now,
+            profit_target_pct=ticker_cfg.profit_target_pct,
+        )
+        signal = evaluate_ticker(ctx, self.config.strategy, self.config.risk)
+        self.signal_journal.log(signal)
+
+        if signal.decision != Decision.ENTRY_CANDIDATE:
+            return
+
+        account = self.broker.get_account()
+        risk_check = self.risk_manager.can_open_new_position(
+            ticker=ticker,
+            account_equity=account.equity,
+            has_open_position=self.position_manager.has_open_position(ticker),
+            open_position_count=self.position_manager.open_position_count(),
+            has_pending_order_for_ticker=self.position_manager.has_pending_order(ticker),
+            spread_pct=stock_snapshot.spread_pct,
+            max_spread_pct=ticker_cfg.max_spread_pct,
+            data_is_stale=False,
+            broker_connected=self.broker.is_connected(),
+            kill_switch_active=self.config.kill_switch_active(),
+            now=now,
+        )
+        if not risk_check.allowed:
+            return
+
+        sizing = calc_position_size(
+            account_equity=account.equity,
+            max_account_risk_per_trade=self.config.risk["account"]["max_account_risk_per_trade"],
+            entry_price=signal.entry_price,
+            stop_price=signal.stop,
+            max_position_size_dollars=self.config.risk["sizing"]["max_position_size_dollars"],
+            max_position_size_pct_equity=self.config.risk["sizing"]["max_position_size_pct_equity"],
+        )
+        if sizing.shares <= 0:
+            return
+
+        self.order_manager.submit_entry_order(
+            ticker=ticker,
+            current_snapshot=stock_snapshot,
+            max_spread_pct=ticker_cfg.max_spread_pct,
+            planned_entry_price=signal.entry_price,
+            planned_limit_price=signal.entry_price,
+            shares=sizing.shares,
+            benchmark_still_confirmed=True,
+            risk_check_passed=True,
+        )
+
+    def manage_open_positions(self, now: datetime) -> None:
+        strat = self.config.strategy["trade_management"]
+        for position in list(self.position_manager.open_positions()):
+            snapshot = self._snapshot_for(position.ticker)
+            if snapshot is None:
+                continue
+            action = self.position_manager.manage(
+                position.ticker,
+                current_price=snapshot.last_price,
+                current_time=now,
+                breakeven_trigger_r=strat["breakeven_trigger_r"],
+                partial_exit_enabled=strat["partial_exit"]["enabled"],
+                partial_exit_trigger_r=strat["partial_exit"]["trigger_r"],
+                partial_exit_sell_fraction=strat["partial_exit"]["sell_fraction"],
+            )
+            if action.should_exit:
+                trade = self.position_manager.close_position(
+                    position.ticker, now, action.exit_price, action.exit_reason
+                )
+                self.trade_journal.record(trade)
+                self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker)
+
+    def run_overnight_review(self, now: datetime) -> None:
+        for position in list(self.position_manager.open_positions()):
+            ticker_cfg = self.config.tickers[position.ticker]
+            stock_state = self.data_provider.get_state(position.ticker)
+            bench_state = self.data_provider.get_state(ticker_cfg.benchmark)
+            stock_snapshot = self._snapshot_for(position.ticker)
+            bench_snapshot = self._snapshot_for(ticker_cfg.benchmark)
+            if stock_snapshot is None or bench_snapshot is None:
+                self._exit_position(position.ticker, now, ExitReason.SYSTEM_SAFETY_EXIT)
+                continue
+
+            decision = evaluate_overnight_eligibility(
+                position=position,
+                stock_bars=stock_state.bars,
+                stock_snapshot=stock_snapshot,
+                benchmark_bars=bench_state.bars,
+                benchmark_snapshot=bench_snapshot,
+                overnight_category=ticker_cfg.overnight_category,
+                overnight_position_multiplier=ticker_cfg.overnight_position_multiplier,
+                max_spread_pct=ticker_cfg.max_spread_pct,
+            )
+            if not decision.eligible:
+                self._exit_position(position.ticker, now, ExitReason.OVERNIGHT_REJECTED)
+                continue
+
+            hold_shares = shares_to_hold_overnight(position.shares, decision.size_multiplier)
+            sell_shares = position.shares - hold_shares
+            if sell_shares > 0:
+                position.apply_partial_exit(now, stock_snapshot.last_price, sell_shares, "overnight_size_reduction")
+            position.overnight = True
+            position.overnight_multiplier_applied = decision.size_multiplier
+
+    def _exit_position(self, ticker: str, now: datetime, reason: ExitReason) -> None:
+        snapshot = self._snapshot_for(ticker)
+        exit_price = snapshot.last_price if snapshot else self.position_manager.get_position(ticker).current_stop
+        trade = self.position_manager.close_position(ticker, now, exit_price, reason)
+        self.trade_journal.record(trade)
+        self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, ticker)
+
+    def run_cycle(self, now: datetime) -> None:
+        """One pass over the approved universe -- see docs/ARCHITECTURE.md section 10
+        for the full loop this is nested inside."""
+        if self.config.kill_switch_active():
+            return
+
+        if is_near_overnight_review(self.config.schedule, now):
+            self.run_overnight_review(now)
+            return
+
+        for ticker in self.config.auto_tradeable_universe():
+            if self.position_manager.has_open_position(ticker):
+                self.manage_open_positions(now)
+            else:
+                self.evaluate_and_maybe_enter(ticker, now)
+
+
+def build_default_bot(config: Optional[AppConfig] = None) -> TradingBot:
+    config = config or load_config()
+    data_provider = InMemoryMarketDataProvider()
+    broker = PaperBrokerAdapter(
+        starting_equity=config.broker["paper"]["starting_equity"],
+        fill_model=config.broker["paper"]["fill_model"],
+    )
+    signal_journal = SignalJournal("logs/signals.jsonl")
+    trade_journal = TradeJournal("reports/trades.jsonl")
+    return TradingBot(config, data_provider, broker, signal_journal, trade_journal)
+
+
+if __name__ == "__main__":
+    print(
+        "Phase 1/2 wiring is implemented (see TradingBot in src/main.py), but this "
+        "entry point does not start a live loop: there is no real market-data feed "
+        "or brokerage connection wired up yet, by design (spec sections 36-37).\n"
+        "Run the test suite instead: pytest tests/\n"
+        "To exercise the pipeline end-to-end, feed InMemoryMarketDataProvider bars/"
+        "quotes yourself (see tests/) and call TradingBot.run_cycle(now) in a loop."
+    )

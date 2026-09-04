@@ -1,0 +1,40 @@
+# Risk / money-management parameters. See docs/ARCHITECTURE.md section 6.
+# Nothing here is a final production setting -- these are paper-trading defaults meant
+# to be swept/tested via the daily/cumulative reports (spec section 15/16).
+
+account:
+  max_account_risk_per_trade: 0.0075   # 0.75% of equity per trade
+
+sizing:
+  max_position_size_dollars: 25000
+  max_position_size_pct_equity: 0.25
+
+stops:
+  atr_multiplier:
+    low_volatility_diversified: 0.75
+    normal: 0.85
+    high_volatility_speculative: 0.95
+
+safety:
+  max_trades_per_day: 3
+  max_daily_loss_pct: 0.02
+  max_consecutive_losses: 2
+  max_position_size_dollars: 25000
+  max_slippage_pct: 0.10
+  max_spread_pct_default: 0.25
+  data_staleness_limit_seconds: 30
+  broker_connection_check_interval_seconds: 15
+  ticker_cooldown_after_stop_minutes: 45
+
+behavior:
+  averaging_down: false
+  pyramiding: false
+  max_concurrent_positions: 1
+
+overnight:
+  default_position_multiplier: 1.0
+  reduced_position_multiplier: 0.50
+
+emergency:
+  kill_switch_enabled: true
+  kill_switch_file: "logs/KILL_SWITCH"

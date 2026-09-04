@@ -1,0 +1,48 @@
+# Intraday trading windows, all times America/New_York. See spec section 5 and
+# docs/ARCHITECTURE.md section 8.
+
+timezone: America/New_York
+
+windows:
+  - name: observation
+    start: "09:30"
+    end: "09:40"
+    allow_new_entries: false
+    priority: none
+
+  - name: primary_entry
+    start: "09:40"
+    end: "11:30"
+    allow_new_entries: true
+    priority: high
+    min_score_key: primary_window
+
+  - name: low_priority
+    start: "11:30"
+    end: "14:00"
+    allow_new_entries: true
+    priority: low
+    min_score_key: midday_window
+
+  - name: secondary_entry
+    start: "14:00"
+    end: "15:15"
+    allow_new_entries: true
+    priority: high
+    min_score_key: primary_window
+
+  - name: position_management_only
+    start: "15:15"
+    end: "15:50"
+    allow_new_entries: false
+    priority: none
+
+  - name: overnight_review
+    start: "15:50"
+    end: "16:00"
+    allow_new_entries: false
+    priority: none
+
+market_open: "09:30"
+market_close: "16:00"
+overnight_review_time: "15:50"

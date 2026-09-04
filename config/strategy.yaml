@@ -1,0 +1,53 @@
+# Strategy parameters. See docs/ARCHITECTURE.md section 5 for schema notes.
+
+candle_timeframe: 5m   # architecture supports adding 1m later without changing the schema
+
+indicators:
+  ema_fast: 9
+  ema_slow: 20
+  atr_period: 14
+
+eligibility:
+  min_relative_volume: 1.20
+
+chase_rule:
+  max_consecutive_large_green_candles: 3
+  large_candle_body_atr_multiple: 1.0
+  max_atr_above_vwap: 1.0
+  max_pct_above_open_without_consolidation: 5.0
+
+benchmark_confirmation:
+  require_price_above_vwap: true
+  require_ema_alignment: true
+  require_no_fresh_intraday_low: true
+
+setups:
+  opening_range_minutes: 10
+  pullback_max_atr_from_breakout: 1.0
+  vwap_reclaim_lookback_bars: 6
+
+reward_risk:
+  minimum_r: 1.5
+  preferred_r_min: 1.75
+
+scoring:
+  weights:
+    benchmark_strength: 20
+    relative_volume: 15
+    price_vs_vwap: 10
+    ema_alignment: 10
+    opening_range_structure: 15
+    pullback_quality: 10
+    risk_reward: 10
+    spread_liquidity: 5
+    sector_strength: 5
+  minimum_entry_score:
+    primary_window: 70
+    midday_window: 80
+
+trade_management:
+  breakeven_trigger_r: 1.0
+  partial_exit:
+    enabled: true
+    trigger_r: 1.5
+    sell_fraction: 0.35

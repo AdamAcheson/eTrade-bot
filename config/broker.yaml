@@ -1,0 +1,22 @@
+# Broker selection. See docs/ARCHITECTURE.md section 7 and section 11 ("what could ever
+# place a real order"). ONLY "paper" is implemented. config_loader.py raises a
+# ConfigError at startup if mode != "paper".
+
+mode: paper   # paper | live  -- "live" is not implemented in any phase shipped so far
+
+paper:
+  starting_equity: 100000
+  fill_model: touch   # a resting limit order fills once the quote touches/crosses it
+
+etrade:
+  # This block is inert configuration only -- broker/etrade.py has no HTTP client and
+  # every ETradeBrokerAdapter method raises NotImplementedError. Sandbox vs production
+  # will eventually be selected by environment + this block together; production will
+  # additionally require ETRADE_ENV=production. Credentials are never stored here --
+  # only the NAMES of the environment variables that would hold them.
+  environment: sandbox   # sandbox | production
+  consumer_key_env: ETRADE_SANDBOX_CONSUMER_KEY
+  consumer_secret_env: ETRADE_SANDBOX_CONSUMER_SECRET
+  oauth_token_env: ETRADE_SANDBOX_OAUTH_TOKEN
+  oauth_token_secret_env: ETRADE_SANDBOX_OAUTH_TOKEN_SECRET
+  account_id_env: ETRADE_SANDBOX_ACCOUNT_ID

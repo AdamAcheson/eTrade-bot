@@ -1,0 +1,257 @@
+# Trading universe + per-ticker configuration.
+# See docs/ARCHITECTURE.md section 4 for the schema explanation.
+#
+# overnight_category: normal | conditional | manual_only
+# strategy: mining (default) | excluded  (excluded tickers are never traded, only
+#           kept here so they are never silently mis-mapped into the mining universe)
+
+tickers:
+  # --- Silver miners (benchmark: SIL, except VZLA -> SILJ) ---
+  AG:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  SVM:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.25
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  HL:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  EXK:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  VZLA:
+    benchmark: SILJ
+    sector: silver_miner
+    max_spread_pct: 0.30
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  SIL:
+    benchmark: SLV
+    sector: silver_miner_etf
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  # --- Gold / gold-silver miners (benchmark: GDX) ---
+  CDE:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  EQX:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  SSRM:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  DRD:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.35
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  FSM:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.25
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  # --- Copper (benchmark: COPX) ---
+  FCX:
+    benchmark: COPX
+    sector: copper
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  SCCO:
+    benchmark: COPX
+    sector: copper
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  # --- Diversified mining (benchmark: PICK) ---
+  RIO:
+    benchmark: PICK
+    sector: diversified_mining
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 2.5]
+    volatility_category: low
+
+  BHP:
+    benchmark: PICK
+    sector: diversified_mining
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 2.5]
+    volatility_category: low
+
+  NEXA:
+    benchmark: PICK
+    sector: diversified_mining
+    max_spread_pct: 0.35
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  # --- Uranium (benchmark: URA) ---
+  UEC:
+    benchmark: URA
+    sector: uranium
+    max_spread_pct: 0.25
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  # --- Rare earths / critical minerals (benchmark: REMX) ---
+  MP:
+    benchmark: REMX
+    sector: rare_earth
+    max_spread_pct: 0.20
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  USAR:
+    benchmark: REMX
+    sector: rare_earth
+    max_spread_pct: 0.20
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  CRML:
+    benchmark: REMX
+    sector: rare_earth
+    max_spread_pct: 0.30
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  # --- Specialty minerals (benchmark: XME) ---
+  CMP:
+    benchmark: XME
+    sector: specialty_minerals
+    max_spread_pct: 0.35
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  # --- Exploration / OTC: manual-only, not auto-traded ---
+  NZAUF:
+    benchmark: GDXJ
+    sector: exploration_otc
+    max_spread_pct: 0.75
+    overnight_category: manual_only
+    overnight_position_multiplier: 0.0
+    manual_only: true
+    profit_target_pct: null
+    volatility_category: very_high
+
+  AAGAF:
+    benchmark: SILJ
+    sector: exploration_otc
+    max_spread_pct: 0.75
+    overnight_category: manual_only
+    overnight_position_multiplier: 0.0
+    manual_only: true
+    profit_target_pct: null
+    volatility_category: very_high
+
+  # --- Utility: explicitly NOT part of the mining strategy universe ---
+  AQN:
+    benchmark: XLU
+    sector: utility
+    strategy: excluded
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 2.5]
+    volatility_category: low
