@@ -160,11 +160,17 @@ class ETradeBrokerAdapter(BrokerInterface):
             "Computed.cashBalance",
             "cashAvailableForInvestment",
         )
+        # Real sandbox MARGIN-account responses observed in practice have no
+        # buying-power-specific field at all (confirmed against a live sandbox
+        # account) -- fall back to the cash figures already resolved above rather
+        # than crashing when that's the case.
         buying_power = _find_first(
             balance,
             "Computed.cashBuyingPower",
             "Computed.marginBuyingPower",
             "cashBuyingPower",
+            "Computed.cashAvailableForInvestment",
+            "Computed.cashAvailableForWithdrawal",
         )
         return Account(equity=float(equity), cash=float(cash), buying_power=float(buying_power))
 
