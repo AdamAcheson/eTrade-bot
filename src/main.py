@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, time as dtime
 from typing import Dict, List, Optional
 
-from broker.base import BrokerInterface
+from broker.base import BrokerInterface, OrderStatus
 from broker.etrade import ETradeBrokerAdapter
 from broker.paper import PaperBrokerAdapter
 from config_loader import AppConfig, load_config
@@ -73,6 +73,12 @@ def build_schedule_windows(schedule_cfg: dict) -> List[ScheduleWindow]:
     ]
 
 
+def _same_session_day(bar_timestamp: datetime, now: datetime) -> bool:
+    if now.tzinfo is not None and bar_timestamp.tzinfo is not None:
+        return bar_timestamp.astimezone(now.tzinfo).date() == now.date()
+    return bar_timestamp.date() == now.date()
+
+
 def current_window(windows: List[ScheduleWindow], now: datetime) -> Optional[ScheduleWindow]:
     now_t = now.time()
     for w in windows:
@@ -113,13 +119,22 @@ class TradingBot:
         self.order_manager = OrderManager(broker, self.position_manager)
         self.schedule_windows = build_schedule_windows(config.schedule)
 
-    def _snapshot_for(self, ticker: str) -> Optional[IndicatorSnapshot]:
+    def _snapshot_for(self, ticker: str, now: datetime) -> Optional[IndicatorSnapshot]:
         state = self.data_provider.get_state(ticker)
         if not state.bars or state.quote is None:
             return None
+        # Only today's session bars -- state.bars accumulates every bar ever pushed
+        # for this ticker, with no day-boundary reset (by design, so other uses like
+        # historical analysis keep full history). Without this filter, opening
+        # range/VWAP/EMA/RVOL would silently blend yesterday's session into today's
+        # once the bot (or a backtest) runs past a single day, which is exactly how
+        # it's meant to run.
+        today_bars = [b for b in state.bars if _same_session_day(b.timestamp, now)]
+        if not today_bars:
+            return None
         strat = self.config.strategy
         snapshot = compute_snapshot(
-            state.bars,
+            today_bars,
             bid=state.quote.bid,
             ask=state.quote.ask,
             average_volume_baseline=state.average_volume_baseline,
@@ -139,8 +154,8 @@ class TradingBot:
         ticker_cfg = self.config.tickers[ticker]
         window = current_window(self.schedule_windows, now)
 
-        stock_snapshot = self._snapshot_for(ticker)
-        bench_snapshot = self._snapshot_for(ticker_cfg.benchmark)
+        stock_snapshot = self._snapshot_for(ticker, now)
+        bench_snapshot = self._snapshot_for(ticker_cfg.benchmark, now)
         stock_state = self.data_provider.get_state(ticker)
         bench_state = self.data_provider.get_state(ticker_cfg.benchmark)
 
@@ -207,21 +222,53 @@ class TradingBot:
         if sizing.shares <= 0:
             return
 
-        self.order_manager.submit_entry_order(
+        result = self.order_manager.submit_entry_order(
             ticker=ticker,
             current_snapshot=stock_snapshot,
             max_spread_pct=ticker_cfg.max_spread_pct,
             planned_entry_price=signal.entry_price,
-            planned_limit_price=signal.entry_price,
+            # Marketable at the current ask, not pinned to the theoretical signal
+            # entry price -- a limit resting exactly at signal.entry_price would sit
+            # below any real (or synthesized-in-backtest) ask and never fill, with
+            # no pending-order reconciliation loop to catch it later. This is a
+            # deliberate small amount of realistic slippage, not the "wait
+            # indefinitely for a passive fill" behavior a limit order normally has.
+            planned_limit_price=stock_snapshot.ask,
             shares=sizing.shares,
             benchmark_still_confirmed=True,
             risk_check_passed=True,
         )
+        if not result.submitted:
+            return
+
+        # PaperBrokerAdapter only fills a resting order once it sees a quote
+        # (process_quote) -- feed it the current one immediately, since the order
+        # was just placed at (or inside) the current market. A real broker
+        # (ETradeBrokerAdapter) fills asynchronously on its own; reconciling a
+        # pending order against a later fill confirmation isn't implemented yet,
+        # so on that path the ticker simply stays ORDER_PENDING until a future
+        # enhancement adds status polling.
+        if isinstance(self.broker, PaperBrokerAdapter):
+            self.broker.process_quote(ticker, stock_snapshot.bid, stock_snapshot.ask)
+
+        order = self.broker.get_order_status(result.order.order_id)
+        if order.status == OrderStatus.FILLED:
+            self.position_manager.open_position(
+                ticker=ticker,
+                benchmark=ticker_cfg.benchmark,
+                entry_time=now,
+                entry_price=order.avg_fill_price or order.limit_price,
+                shares=order.filled_quantity,
+                stop_price=signal.stop,
+                target_price=signal.target,
+                setup_type=signal.setup_type,
+                setup_score=signal.setup_score,
+            )
 
     def manage_open_positions(self, now: datetime) -> None:
         strat = self.config.strategy["trade_management"]
         for position in list(self.position_manager.open_positions()):
-            snapshot = self._snapshot_for(position.ticker)
+            snapshot = self._snapshot_for(position.ticker, now)
             if snapshot is None:
                 continue
             action = self.position_manager.manage(
@@ -246,17 +293,19 @@ class TradingBot:
             ticker_cfg = self.config.tickers[position.ticker]
             stock_state = self.data_provider.get_state(position.ticker)
             bench_state = self.data_provider.get_state(ticker_cfg.benchmark)
-            stock_snapshot = self._snapshot_for(position.ticker)
-            bench_snapshot = self._snapshot_for(ticker_cfg.benchmark)
+            stock_snapshot = self._snapshot_for(position.ticker, now)
+            bench_snapshot = self._snapshot_for(ticker_cfg.benchmark, now)
             if stock_snapshot is None or bench_snapshot is None:
                 self._exit_position(position.ticker, now, ExitReason.SYSTEM_SAFETY_EXIT)
                 continue
 
+            today_stock_bars = [b for b in stock_state.bars if _same_session_day(b.timestamp, now)]
+            today_bench_bars = [b for b in bench_state.bars if _same_session_day(b.timestamp, now)]
             decision = evaluate_overnight_eligibility(
                 position=position,
-                stock_bars=stock_state.bars,
+                stock_bars=today_stock_bars,
                 stock_snapshot=stock_snapshot,
-                benchmark_bars=bench_state.bars,
+                benchmark_bars=today_bench_bars,
                 benchmark_snapshot=bench_snapshot,
                 overnight_category=ticker_cfg.overnight_category,
                 overnight_position_multiplier=ticker_cfg.overnight_position_multiplier,
@@ -275,7 +324,7 @@ class TradingBot:
             position.overnight_multiplier_applied = decision.size_multiplier
 
     def _exit_position(self, ticker: str, now: datetime, reason: ExitReason) -> None:
-        snapshot = self._snapshot_for(ticker)
+        snapshot = self._snapshot_for(ticker, now)
         position = self.position_manager.get_position(ticker)
         exit_price = snapshot.last_price if snapshot else position.current_stop
         if snapshot is not None:

@@ -72,6 +72,38 @@ balance/positions/orders with live unrealized P&L), `scripts/etrade_test_order.p
 * `mode: sandbox` + `market_data_source: etrade` -- same real quotes, but orders
   also actually go to E*TRADE.
 
+## Backtesting against real historical data
+
+E*TRADE's sandbox quotes are static (never move), so the strategy can never
+actually fire against it -- confirmed by a 7.5-hour live run that logged nothing
+but `REJECTED_BENCHMARK_CONFIRMATION`/`REJECTED_TIME_WINDOW` all day. To see the
+strategy evaluate real price action, `scripts/backtest.py` replays real historical
+5-minute bars (from Yahoo Finance's public chart API -- the last ~60 days is what's
+available for 5-minute data) through the exact same `TradingBot` /
+`PaperBrokerAdapter` / `InMemoryMarketDataProvider` stack used everywhere else. It
+is not a separate simulation engine.
+
+```
+python scripts/fetch_historical_data.py   # once, populates data_cache/historical/
+python scripts/backtest.py                # replays all cached days
+python scripts/backtest.py --days 10      # just the most recent 10 trading days
+```
+
+Known approximations (Yahoo's free intraday data has no bid/ask): spread is
+synthesized as a fraction of each ticker's configured `max_spread_pct`; relative
+volume uses a time-of-day-aware baseline computed from strictly prior days only (no
+lookahead bias) -- the first backtest day has no baseline yet, mirroring a real
+bot's cold start.
+
+This is also how a real, previously-undetected bug was found: `evaluate_and_maybe_
+enter()` submitted entry orders but discarded the result, so a filled order never
+became a tracked position -- real signals fired but zero trades ever closed. Fixed
+in `src/main.py`; see `tests/test_entry_opens_position.py` for the regression test.
+A second bug found the same way: `_snapshot_for` used every bar ever recorded for a
+ticker, not just the current session's, so indicators would silently blend
+yesterday's data into today's once the bot ran past a single day -- see
+`tests/test_main_snapshot.py`.
+
 ```
 python scripts/run_bot.py [poll_interval_seconds]   # default 30s, Ctrl+C to stop
 ```
