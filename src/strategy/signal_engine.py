@@ -83,6 +83,7 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         require_no_fresh_intraday_low=bench_cfg["require_no_fresh_intraday_low"],
     )
     if not bench_result.confirmed:
+        signal.extra["benchmark_rejection_detail"] = bench_result.reason
         return reject(RejectionReason.REJECTED_BENCHMARK_CONFIRMATION)
 
     elig = basic_eligibility(

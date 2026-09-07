@@ -82,5 +82,6 @@ class Signal:
         row["timestamp"] = self.timestamp.isoformat()
         row["decision"] = self.decision.value
         row["rejection_reason"] = self.rejection_reason.value if self.rejection_reason else None
-        row.pop("extra")
+        if not row["extra"]:
+            row.pop("extra")
         return row
