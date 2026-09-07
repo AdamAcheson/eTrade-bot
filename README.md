@@ -85,6 +85,30 @@ broker connection, not that it will find live entries with wiring this thin.
 `src/main.py` still doesn't start a live loop when run directly, in either mode --
 running `python src/main.py` prints a status message and exits.
 
+## Backtesting against real historical data
+
+`scripts/backtest.py` replays free historical bars (Yahoo Finance, no API key
+needed) through the exact same `TradingBot` pipeline the paper bot runs --
+signal engine, risk manager, order manager, `PaperBrokerAdapter`, position
+manager -- one 5-minute bar at a time, session by session, against the
+approved universe in `config/tickers.yaml`.
+
+```
+python3 scripts/backtest.py                       # full universe, last 60 days
+python3 scripts/backtest.py --tickers AG,SVM,HL    # a subset
+python3 scripts/backtest.py --range 30d            # shorter window
+```
+
+Read `src/backtest/data_fetch.py` and `src/backtest/engine.py`'s module
+docstrings before trusting a result: Yahoo's free 5-minute bars only go back
+~60 calendar days, and there is no historical bid/ask, so the engine
+synthesizes a small spread around each close -- fills and spread-based
+rejections are an approximation, not a replay of real order-book conditions.
+Fetched bars are cached under `data/cache/` (gitignored) so repeat runs don't
+re-hit the network; pass `--no-cache` to force a refetch. A full run also
+writes `reports/backtest_summary.json` (trades, equity curve, rejection
+breakdown) alongside the console report.
+
 ## Project layout
 
 See `docs/ARCHITECTURE.md` for the annotated file tree. In short:

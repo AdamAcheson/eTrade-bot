@@ -11,3 +11,5 @@ logs/KILL_SWITCH
 reports/*.jsonl
 reports/*.json
 *.egg-info/
+data/cache/
+reports/backtest_*.json

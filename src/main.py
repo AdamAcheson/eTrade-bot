@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, time as dtime
 from typing import Dict, List, Optional
 
-from broker.base import BrokerInterface
+from broker.base import BrokerInterface, Order, OrderStatus
 from broker.etrade import ETradeBrokerAdapter
 from broker.paper import PaperBrokerAdapter
 from config_loader import AppConfig, load_config
@@ -35,7 +35,7 @@ from data.etrade_market_data import ETradeMarketDataProvider
 from data.indicators import IndicatorSnapshot, compute_snapshot
 from data.market_data import InMemoryMarketDataProvider, MarketDataProvider
 from execution.order_manager import OrderManager
-from models.signal import Decision
+from models.signal import Decision, Signal
 from models.trade import ExitReason
 from positions.overnight import evaluate_overnight_eligibility, shares_to_hold_overnight
 from positions.position_manager import PositionManager
@@ -207,7 +207,7 @@ class TradingBot:
         if sizing.shares <= 0:
             return
 
-        self.order_manager.submit_entry_order(
+        result = self.order_manager.submit_entry_order(
             ticker=ticker,
             current_snapshot=stock_snapshot,
             max_spread_pct=ticker_cfg.max_spread_pct,
@@ -216,6 +216,40 @@ class TradingBot:
             shares=sizing.shares,
             benchmark_still_confirmed=True,
             risk_check_passed=True,
+        )
+        if result.submitted:
+            self._try_fill_entry(ticker, ticker_cfg.benchmark, result.order, signal, now)
+
+    def _try_fill_entry(self, ticker: str, benchmark: str, order: Order, signal: Signal, now: datetime) -> None:
+        """Attempt to fill the just-submitted entry order against the current quote
+        and, if filled, actually open the Position -- this is the step that was
+        missing entirely: submit_entry_order only reserves the ticker
+        (mark_order_pending) and calls broker.submit_limit_order, but nothing
+        previously turned a filled order into an open Position, so
+        manage_open_positions/run_overnight_review never had anything to act on and
+        no trade could ever be recorded. Mirrors the pattern already used for exits
+        in _submit_exit_and_simulate: PaperBrokerAdapter only fills resting orders
+        once it sees a quote via process_quote."""
+        if isinstance(self.broker, PaperBrokerAdapter):
+            state = self.data_provider.get_state(ticker)
+            if state.quote is not None:
+                self.broker.process_quote(ticker, state.quote.bid, state.quote.ask)
+
+        filled = self.broker.get_order_status(order.order_id)
+        if filled.status != OrderStatus.FILLED:
+            self.position_manager.cancel_pending_order(ticker)
+            return
+
+        self.position_manager.open_position(
+            ticker=ticker,
+            benchmark=benchmark,
+            entry_time=now,
+            entry_price=filled.avg_fill_price or signal.entry_price,
+            shares=filled.filled_quantity,
+            stop_price=signal.stop,
+            target_price=signal.target,
+            setup_type=signal.setup_type,
+            setup_score=signal.setup_score,
         )
 
     def manage_open_positions(self, now: datetime) -> None:
