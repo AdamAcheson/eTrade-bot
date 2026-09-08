@@ -11,3 +11,7 @@ logs/KILL_SWITCH
 reports/*.jsonl
 reports/*.json
 *.egg-info/
+
+# Project-scoped MCP config can embed vendor API keys in the URL (see trader-dev) --
+# never commit it.
+.mcp.json
