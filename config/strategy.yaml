@@ -8,7 +8,12 @@ indicators:
   atr_period: 14
 
 eligibility:
-  min_relative_volume: 1.20
+  # RVOL threshold: today's cumulative volume-so-far must be at least this many
+  # times the same point-in-time historical average. Lowered from 1.20 (20% above
+  # average) to admit more candidates, per user decision after reviewing the 60-day
+  # backtest's rejection-reason breakdown (REJECTED_LOW_VOLUME was a meaningful
+  # contributor).
+  min_relative_volume: 1.10
 
 chase_rule:
   max_consecutive_large_green_candles: 3

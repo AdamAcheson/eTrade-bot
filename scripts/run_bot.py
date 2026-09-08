@@ -74,11 +74,22 @@ def main() -> int:
     seen_signals = 0
     seen_trades = 0
     cycles = 0
+    current_day = datetime.now(tz).date()
 
     try:
         while True:
             now = datetime.now(tz)
             cycles += 1
+
+            if now.date() != current_day:
+                # Without this, RiskManager's daily counters (trades_today,
+                # consecutive losses, cooldowns) never reset if this process is
+                # left running across midnight -- confirmed in scripts/backtest.py:
+                # max_trades_per_day silently blocked every signal after the 3rd
+                # trade of the ENTIRE run, not just the 3rd trade of each day.
+                bot.risk_manager.reset_daily_counters()
+                current_day = now.date()
+                print(f"[{now:%H:%M:%S}] new trading day -- daily risk counters reset")
 
             for symbol in all_symbols:
                 try:

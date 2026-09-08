@@ -157,6 +157,12 @@ def main() -> int:
     entries = 0
 
     for day in all_days:
+        # Without this, RiskManager's daily counters (trades_today, consecutive
+        # losses, cooldowns) never reset across a multi-day backtest -- confirmed:
+        # max_trades_per_day silently blocked every signal after the 3rd trade of
+        # the entire 60-day run, not just the 3rd trade of each day.
+        bot.risk_manager.reset_daily_counters()
+
         # bar-index-within-day per symbol for this day, keyed by timestamp, so we
         # can look up the right volume baseline as we replay in time order.
         index_by_ts: Dict[str, Dict[datetime, int]] = {}
