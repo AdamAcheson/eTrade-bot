@@ -159,10 +159,22 @@ def detect_opening_range_breakout_pullback(
     if higher_low_bar is None:
         return SetupResult(False, reason="no_higher_low")
 
-    # 7: bullish confirmation candle closing above the higher-low bar's high.
-    confirmation_bar = bars[-1]
-    if not (confirmation_bar.is_green and confirmation_bar.close > higher_low_bar.high):
+    # 7: a bullish confirmation candle closing above the higher-low bar's high, at
+    # ANY point since the higher low -- not only if it happens to be the single
+    # most-recently-closed bar. Every other step in this function searches a range
+    # of bars for a match; this one didn't, so a real confirmation candle that
+    # landed one cycle early or late (relative to exactly when the bot happened to
+    # evaluate) was being scored as a miss even though the pattern actually played
+    # out. Naturally bounded to today's session since `bars` already is (see
+    # main.py's same-session filtering). Entry is still at the CURRENT price
+    # (the latest bar's close), not the historical confirmation bar's own close.
+    higher_low_index = remaining.index(higher_low_bar)
+    confirmation_candidates = remaining[higher_low_index + 1:]
+    confirmed = any(b.is_green and b.close > higher_low_bar.high for b in confirmation_candidates)
+    if not confirmed:
         return SetupResult(False, reason="no_confirmation_candle")
+
+    confirmation_bar = bars[-1]
 
     return SetupResult(
         True,
