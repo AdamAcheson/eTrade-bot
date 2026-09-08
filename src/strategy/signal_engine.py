@@ -20,7 +20,7 @@ from risk.position_sizing import (
 )
 from strategy.benchmark import benchmark_confirmation
 from strategy.scoring import score_setup
-from strategy.setups import basic_eligibility, detect_opening_range_breakout_pullback, detect_vwap_reclaim, is_overextended
+from strategy.setups import SetupResult, basic_eligibility, detect_opening_range_breakout_pullback, detect_vwap_reclaim, is_overextended
 
 
 @dataclass
@@ -120,18 +120,21 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         return reject(RejectionReason.REJECTED_OVEREXTENDED)
 
     setup_cfg = strategy_config["setups"]
-    orb_bar_count = setup_cfg["opening_range_minutes"] // 5 or 1
-    setup = detect_opening_range_breakout_pullback(
-        ctx.bars,
-        opening_range_high=ctx.snapshot.opening_range_high,
-        opening_range_bar_count=orb_bar_count,
-        pullback_max_atr_from_breakout=setup_cfg["pullback_max_atr_from_breakout"],
-        atr_value=ctx.snapshot.atr,
-        ema_9=ctx.snapshot.ema_9,
-        vwap_value=ctx.snapshot.vwap,
-    )
+    setup = SetupResult(matched=False)
+    if setup_cfg.get("enable_orb_pullback", True):
+        orb_bar_count = setup_cfg["opening_range_minutes"] // 5 or 1
+        setup = detect_opening_range_breakout_pullback(
+            ctx.bars,
+            opening_range_high=ctx.snapshot.opening_range_high,
+            opening_range_bar_count=orb_bar_count,
+            pullback_max_atr_from_breakout=setup_cfg["pullback_max_atr_from_breakout"],
+            atr_value=ctx.snapshot.atr,
+            ema_9=ctx.snapshot.ema_9,
+            vwap_value=ctx.snapshot.vwap,
+        )
+        if not setup.matched:
+            signal.extra["orb_rejection_detail"] = setup.reason
     if not setup.matched:
-        signal.extra["orb_rejection_detail"] = setup.reason
         setup = detect_vwap_reclaim(ctx.bars, lookback_bars=setup_cfg["vwap_reclaim_lookback_bars"])
 
     if not setup.matched:

@@ -148,6 +148,11 @@ def main() -> int:
         help="EXPERIMENT override: replaces reward_risk.preferred_r_min, the fixed R-multiple "
              "used by --scale-target-with-stop (applied in-memory only).",
     )
+    parser.add_argument(
+        "--disable-orb", action="store_true",
+        help="EXPERIMENT override: skip ORB_PULLBACK_CONTINUATION entirely and always try "
+             "VWAP_RECLAIM instead (applied in-memory only).",
+    )
     args = parser.parse_args()
     if args.days and args.first_days:
         print("--days and --first-days are mutually exclusive", file=sys.stderr)
@@ -162,7 +167,7 @@ def main() -> int:
     experiment_active = any([
         args.max_risk_dollars is not None, args.stop_atr_multiplier is not None,
         args.max_hold_days is not None, args.allow_red_overnight, args.scale_target_with_stop,
-        args.preferred_r_min is not None,
+        args.preferred_r_min is not None, args.disable_orb,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -185,6 +190,9 @@ def main() -> int:
         if args.preferred_r_min is not None:
             config.strategy["reward_risk"]["preferred_r_min"] = args.preferred_r_min
             print(f"  reward_risk.preferred_r_min = {args.preferred_r_min}")
+        if args.disable_orb:
+            config.strategy["setups"]["enable_orb_pullback"] = False
+            print("  setups.enable_orb_pullback = False")
         print()
 
     universe = config.auto_tradeable_universe()

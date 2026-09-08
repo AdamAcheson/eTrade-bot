@@ -223,6 +223,22 @@ def test_scale_target_with_stop_ignores_fixed_profit_target_pct(config):
     assert signal.target != pytest.approx(fixed_pct_target)
 
 
+def test_enable_orb_pullback_false_skips_straight_to_vwap_reclaim(config):
+    # Scenario-1's bars are a valid ORB pullback setup; with ORB disabled, the
+    # engine must go straight to VWAP_RECLAIM instead (and, since these bars
+    # don't form a VWAP reclaim pattern, land on REJECTED_NO_SETUP rather than
+    # ENTRY_CANDIDATE via ORB).
+    strategy = copy.deepcopy(config.strategy)
+    strategy["setups"]["enable_orb_pullback"] = False
+    ctx = make_ctx(config)
+    signal = evaluate_ticker(ctx, strategy, config.risk)
+
+    assert signal.decision == Decision.REJECTED
+    assert signal.rejection_reason == RejectionReason.REJECTED_NO_SETUP
+    # No ORB detail should be logged -- it was never attempted.
+    assert "orb_rejection_detail" not in signal.extra
+
+
 def test_scenario_2_stock_bullish_but_benchmark_below_vwap_rejects(config):
     ctx = make_ctx(config, benchmark_snapshot=base_bench_snapshot(vwap=51.0))
     signal = evaluate_ticker(ctx, config.strategy, config.risk)

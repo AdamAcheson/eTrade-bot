@@ -48,6 +48,14 @@ benchmark_confirmation:
   min_trend_pct: 0.3
 
 setups:
+  # ORB_PULLBACK_CONTINUATION is the setup this strategy was originally designed
+  # around; VWAP_RECLAIM is the fallback tried only when it doesn't match. false
+  # skips ORB entirely and always tries VWAP_RECLAIM -- see backtest comparison in
+  # conversation/commit history: once a confirmation-window bug that was starving
+  # ORB of matches got fixed, ORB turned out to be a net-negative contributor on a
+  # real sample (47 trades, 12.8% win rate, -$2,092.83), while VWAP_RECLAIM alone
+  # carried the portfolio positive (89 trades, 22.5% win rate, +$5,736.72).
+  enable_orb_pullback: true
   opening_range_minutes: 10
   pullback_max_atr_from_breakout: 1.0
   vwap_reclaim_lookback_bars: 6
