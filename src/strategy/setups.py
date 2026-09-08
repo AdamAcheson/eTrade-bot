@@ -152,9 +152,11 @@ def detect_opening_range_breakout_pullback(
 
     # 6: higher low.
     higher_low_bar = None
-    for b in remaining:
+    higher_low_index = None
+    for i, b in enumerate(remaining):
         if b.low > pullback_bar.low:
             higher_low_bar = b
+            higher_low_index = i
             break
     if higher_low_bar is None:
         return SetupResult(False, reason="no_higher_low")
@@ -168,7 +170,6 @@ def detect_opening_range_breakout_pullback(
     # out. Naturally bounded to today's session since `bars` already is (see
     # main.py's same-session filtering). Entry is still at the CURRENT price
     # (the latest bar's close), not the historical confirmation bar's own close.
-    higher_low_index = remaining.index(higher_low_bar)
     confirmation_candidates = remaining[higher_low_index + 1:]
     confirmed = any(b.is_green and b.close > higher_low_bar.high for b in confirmation_candidates)
     if not confirmed:
