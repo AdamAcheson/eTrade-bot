@@ -79,12 +79,20 @@ def calc_position_size(
     stop_price: float,
     max_position_size_dollars: Optional[float] = None,
     max_position_size_pct_equity: Optional[float] = None,
+    max_risk_dollars_per_trade: Optional[float] = None,
 ) -> PositionSizeResult:
+    """max_risk_dollars_per_trade, when set, replaces the %-of-equity risk budget with
+    a flat dollar amount -- lets a wider stop be tested without the risk taken
+    scaling with account size. None (default) preserves the original %-of-equity
+    sizing."""
     rps = risk_per_share(entry_price, stop_price)
     if rps <= 0:
         return PositionSizeResult(shares=0, risk_dollars=0.0, risk_per_share=rps, capped_by="invalid_stop")
 
-    risk_dollars = account_equity * max_account_risk_per_trade
+    if max_risk_dollars_per_trade is not None:
+        risk_dollars = max_risk_dollars_per_trade
+    else:
+        risk_dollars = account_equity * max_account_risk_per_trade
     shares = math.floor(risk_dollars / rps)
     capped_by = None
 

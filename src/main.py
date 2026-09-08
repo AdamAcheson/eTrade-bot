@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta
 from typing import Dict, List, Optional
 
 from broker.base import BrokerInterface, OrderStatus
@@ -236,6 +236,7 @@ class TradingBot:
             stop_price=signal.stop,
             max_position_size_dollars=self.config.risk["sizing"]["max_position_size_dollars"],
             max_position_size_pct_equity=self.config.risk["sizing"]["max_position_size_pct_equity"],
+            max_risk_dollars_per_trade=self.config.risk["account"].get("max_risk_dollars_per_trade"),
         )
         if sizing.shares <= 0:
             return
@@ -285,9 +286,18 @@ class TradingBot:
 
     def manage_open_positions(self, now: datetime) -> None:
         strat = self.config.strategy["trade_management"]
+        max_hold_days = self.config.risk["safety"].get("max_hold_days")
         for position in list(self.position_manager.open_positions()):
             snapshot = self._snapshot_for(position.ticker, now)
             if snapshot is None:
+                continue
+            if max_hold_days is not None and (now - position.entry_time) >= timedelta(days=max_hold_days):
+                self._submit_exit_and_simulate(position.ticker, position.shares, snapshot.bid)
+                trade = self.position_manager.close_position(
+                    position.ticker, now, snapshot.last_price, ExitReason.MAX_HOLD_EXCEEDED
+                )
+                self.trade_journal.record(trade)
+                self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker)
                 continue
             action = self.position_manager.manage(
                 position.ticker,
@@ -328,6 +338,7 @@ class TradingBot:
                 overnight_category=ticker_cfg.overnight_category,
                 overnight_position_multiplier=ticker_cfg.overnight_position_multiplier,
                 max_spread_pct=ticker_cfg.max_spread_pct,
+                require_at_or_above_entry=self.config.risk["overnight"].get("require_at_or_above_entry", True),
             )
             if not decision.eligible:
                 self._exit_position(position.ticker, now, ExitReason.OVERNIGHT_REJECTED)

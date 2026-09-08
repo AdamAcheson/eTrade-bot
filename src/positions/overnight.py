@@ -49,13 +49,21 @@ def evaluate_overnight_eligibility(
     max_spread_pct: float,
     has_earnings_before_next_session: bool = False,
     has_known_binary_event: bool = False,
+    require_at_or_above_entry: bool = True,
 ) -> OvernightDecision:
+    """require_at_or_above_entry=False lets a currently-red position still be held
+    overnight if every other thesis check (benchmark trend, structure, volume,
+    selling pressure) passes -- for use only alongside a stop/sizing regime that
+    already bounds the dollar loss if the thesis is wrong (e.g. a wider stop with
+    max_risk_dollars_per_trade), never as a bare override on the default sizing."""
     if overnight_category == "manual_only":
         return OvernightDecision(False, ["MANUAL_ONLY securities are never held automatically"], 0.0)
 
     reasons: List[str] = []
 
-    if not (position.shares > 0 and stock_snapshot.last_price >= position.entry_price * 0.995):
+    if position.shares <= 0:
+        reasons.append("position_not_near_or_above_entry")
+    elif require_at_or_above_entry and stock_snapshot.last_price < position.entry_price * 0.995:
         reasons.append("position_not_near_or_above_entry")
 
     if stock_snapshot.vwap is None or not (stock_snapshot.last_price > stock_snapshot.vwap):

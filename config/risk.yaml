@@ -4,6 +4,10 @@
 
 account:
   max_account_risk_per_trade: 0.0075   # 0.75% of equity per trade
+  # Overrides max_account_risk_per_trade with a flat dollar loss cap per trade
+  # instead of a % of equity when set -- lets a wider stop be tested without risk
+  # scaling with account size. null (default) preserves %-of-equity sizing.
+  max_risk_dollars_per_trade: null
 
 sizing:
   max_position_size_dollars: 25000
@@ -25,6 +29,11 @@ safety:
   data_staleness_limit_seconds: 30
   broker_connection_check_interval_seconds: 15
   ticker_cooldown_after_stop_minutes: 45
+  # Hard force-exit at current price after this many calendar days, regardless of
+  # the daily overnight-eligibility review. null (default) disables it -- positions
+  # are then only ever closed by stop/target/trailing-stop/overnight-review, with
+  # no hold-time ceiling.
+  max_hold_days: null
 
 behavior:
   averaging_down: false
@@ -34,6 +43,13 @@ behavior:
 overnight:
   default_position_multiplier: 1.0
   reduced_position_multiplier: 0.50
+  # When false, a position can be held past the 3:50pm review while currently below
+  # entry price, as long as every other thesis check (benchmark trend, structure,
+  # volume, selling pressure) still passes. Only sound to disable alongside a
+  # stop/sizing regime (like max_risk_dollars_per_trade above) that already bounds
+  # the dollar loss if the thesis turns out wrong. true (default) preserves the
+  # original same-day-or-better requirement.
+  require_at_or_above_entry: true
 
 emergency:
   kill_switch_enabled: true

@@ -116,6 +116,27 @@ def main() -> int:
              "against a holdout slice that hasn't already been eyeballed while tuning config/strategy.yaml. "
              "Mutually exclusive with --days.",
     )
+    parser.add_argument(
+        "--max-risk-dollars", type=float, default=None,
+        help="EXPERIMENT override: flat dollar risk cap per trade instead of config/risk.yaml's "
+             "%%-of-equity sizing (applied in-memory only -- never written back to the config file).",
+    )
+    parser.add_argument(
+        "--stop-atr-multiplier", type=float, default=None,
+        help="EXPERIMENT override: replaces all three of config/risk.yaml's stops.atr_multiplier "
+             "categories with this single value (applied in-memory only).",
+    )
+    parser.add_argument(
+        "--max-hold-days", type=int, default=None,
+        help="EXPERIMENT override: hard force-exit a position after this many calendar days "
+             "(applied in-memory only).",
+    )
+    parser.add_argument(
+        "--allow-red-overnight", action="store_true",
+        help="EXPERIMENT override: a position below entry price can still pass the overnight "
+             "review if every other thesis check passes (applied in-memory only). Only sound "
+             "combined with --max-risk-dollars, which already bounds the loss if wrong.",
+    )
     args = parser.parse_args()
     if args.days and args.first_days:
         print("--days and --first-days are mutually exclusive", file=sys.stderr)
@@ -126,6 +147,27 @@ def main() -> int:
     except ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         return 1
+
+    experiment_active = any([
+        args.max_risk_dollars is not None, args.stop_atr_multiplier is not None,
+        args.max_hold_days is not None, args.allow_red_overnight,
+    ])
+    if experiment_active:
+        print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
+        if args.max_risk_dollars is not None:
+            config.risk["account"]["max_risk_dollars_per_trade"] = args.max_risk_dollars
+            print(f"  max_risk_dollars_per_trade = {args.max_risk_dollars}")
+        if args.stop_atr_multiplier is not None:
+            for category in config.risk["stops"]["atr_multiplier"]:
+                config.risk["stops"]["atr_multiplier"][category] = args.stop_atr_multiplier
+            print(f"  stops.atr_multiplier (all categories) = {args.stop_atr_multiplier}")
+        if args.max_hold_days is not None:
+            config.risk["safety"]["max_hold_days"] = args.max_hold_days
+            print(f"  safety.max_hold_days = {args.max_hold_days}")
+        if args.allow_red_overnight:
+            config.risk["overnight"]["require_at_or_above_entry"] = False
+            print("  overnight.require_at_or_above_entry = False")
+        print()
 
     universe = config.auto_tradeable_universe()
     benchmarks = sorted({config.benchmark_of(t) for t in universe})

@@ -76,6 +76,31 @@ def test_calc_position_size_invalid_stop_returns_zero_shares():
     assert result.capped_by == "invalid_stop"
 
 
+def test_calc_position_size_flat_dollar_risk_overrides_pct_of_equity():
+    result = calc_position_size(
+        account_equity=100_000,
+        max_account_risk_per_trade=0.0075,  # would otherwise give $750 risk
+        entry_price=10.0,
+        stop_price=9.5,
+        max_risk_dollars_per_trade=100,
+    )
+    # $100 / $0.5 risk-per-share = 200 shares, not the 1500 the %-of-equity budget would give.
+    assert result.shares == 200
+    assert result.risk_dollars == pytest.approx(100.0)
+
+
+def test_calc_position_size_flat_dollar_risk_independent_of_equity():
+    small_account = calc_position_size(
+        account_equity=10_000, max_account_risk_per_trade=0.0075,
+        entry_price=10.0, stop_price=9.5, max_risk_dollars_per_trade=100,
+    )
+    large_account = calc_position_size(
+        account_equity=1_000_000, max_account_risk_per_trade=0.0075,
+        entry_price=10.0, stop_price=9.5, max_risk_dollars_per_trade=100,
+    )
+    assert small_account.shares == large_account.shares == 200
+
+
 def test_position_size_adjusts_to_stop_distance_not_the_other_way_around():
     # A wider stop must produce fewer shares for the same dollar risk -- the stop is
     # never tightened just to buy more shares (spec section 14).
