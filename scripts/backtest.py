@@ -137,6 +137,12 @@ def main() -> int:
              "review if every other thesis check passes (applied in-memory only). Only sound "
              "combined with --max-risk-dollars, which already bounds the loss if wrong.",
     )
+    parser.add_argument(
+        "--scale-target-with-stop", action="store_true",
+        help="EXPERIMENT override: ignore each ticker's fixed profit_target_pct and always "
+             "target preferred_r_min x the actual stop distance, so a wider stop (e.g. via "
+             "--stop-atr-multiplier) doesn't silently shrink the R-ratio (applied in-memory only).",
+    )
     args = parser.parse_args()
     if args.days and args.first_days:
         print("--days and --first-days are mutually exclusive", file=sys.stderr)
@@ -150,7 +156,7 @@ def main() -> int:
 
     experiment_active = any([
         args.max_risk_dollars is not None, args.stop_atr_multiplier is not None,
-        args.max_hold_days is not None, args.allow_red_overnight,
+        args.max_hold_days is not None, args.allow_red_overnight, args.scale_target_with_stop,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -167,6 +173,9 @@ def main() -> int:
         if args.allow_red_overnight:
             config.risk["overnight"]["require_at_or_above_entry"] = False
             print("  overnight.require_at_or_above_entry = False")
+        if args.scale_target_with_stop:
+            config.strategy["reward_risk"]["scale_target_with_stop"] = True
+            print("  reward_risk.scale_target_with_stop = True")
         print()
 
     universe = config.auto_tradeable_universe()

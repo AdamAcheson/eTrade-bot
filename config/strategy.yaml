@@ -55,6 +55,12 @@ setups:
 reward_risk:
   minimum_r: 1.5
   preferred_r_min: 1.75
+  # When true, ignores each ticker's fixed profit_target_pct and always targets
+  # preferred_r_min x the ACTUAL stop distance instead -- so widening the stop
+  # (e.g. via risk.yaml's stops.atr_multiplier) doesn't silently shrink the
+  # R-ratio by leaving the target fixed while risk grows. false preserves the
+  # original fixed-%-target behavior.
+  scale_target_with_stop: false
 
 scoring:
   weights:

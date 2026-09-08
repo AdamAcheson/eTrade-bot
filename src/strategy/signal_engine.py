@@ -146,7 +146,11 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
     )
 
     rr_cfg = strategy_config["reward_risk"]
-    if ctx.profit_target_pct:
+    # scale_target_with_stop (default off): a fixed profit_target_pct target doesn't
+    # move when the stop is widened, which silently shrinks the R-ratio the wider
+    # the stop gets. When on, always target a fixed R-multiple of the ACTUAL stop
+    # distance instead, so reward scales with whatever risk was actually taken.
+    if ctx.profit_target_pct and not rr_cfg.get("scale_target_with_stop", False):
         target_pct = (ctx.profit_target_pct[0] + ctx.profit_target_pct[1]) / 2.0
         target_price = entry_price * (1 + target_pct / 100.0)
     else:

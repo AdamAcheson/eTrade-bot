@@ -1,9 +1,11 @@
+import copy
 from datetime import datetime
 
 import pytest
 
 from config_loader import load_config
 from models.signal import Decision, RejectionReason
+from risk.position_sizing import r_multiple_target
 from strategy.benchmark import benchmark_confirmation
 from strategy.setups import basic_eligibility, is_overextended
 from strategy.signal_engine import EvaluationContext, evaluate_ticker
@@ -202,6 +204,23 @@ def test_scenario_1_benchmark_and_stock_bullish_valid_pullback_enters(config):
     assert signal.stop == pytest.approx(10.14)
     assert signal.r_ratio >= config.strategy["reward_risk"]["minimum_r"]
     assert signal.setup_score >= ctx.minimum_entry_score
+
+
+def test_scale_target_with_stop_ignores_fixed_profit_target_pct(config):
+    # Same scenario-1 setup (ticker=AG, profit_target_pct=[3.0, 5.5] in tickers.yaml)
+    # but with scale_target_with_stop on -- target should track the ACTUAL stop
+    # distance (1.75x preferred_r_min) instead of the fixed % target.
+    strategy = copy.deepcopy(config.strategy)
+    strategy["reward_risk"]["scale_target_with_stop"] = True
+    ctx = make_ctx(config)
+    signal = evaluate_ticker(ctx, strategy, config.risk)
+
+    assert signal.decision == Decision.ENTRY_CANDIDATE
+    expected_target = r_multiple_target(signal.entry_price, signal.stop, strategy["reward_risk"]["preferred_r_min"])
+    assert signal.target == pytest.approx(expected_target)
+    # Sanity: this must differ from the fixed-%-target default behavior.
+    fixed_pct_target = signal.entry_price * (1 + ((3.0 + 5.5) / 2.0) / 100.0)
+    assert signal.target != pytest.approx(fixed_pct_target)
 
 
 def test_scenario_2_stock_bullish_but_benchmark_below_vwap_rejects(config):
