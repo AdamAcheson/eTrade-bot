@@ -384,10 +384,19 @@ class TradingBot:
             self.run_overnight_review(now)
             return
 
+        # Manage every open position ONCE, before looking for new entries.
+        # Previously this was called inside the ticker loop, once per ticker that
+        # happened to hold a position -- and manage_open_positions() already loops
+        # over all open positions, so with N concurrent positions each one was
+        # managed N times per cycle. Invisible at max_concurrent_positions: 1
+        # (the only setting ever backtested), live the moment that is raised.
+        # Exits-before-entries also makes the cycle order-independent: a position
+        # closing this bar frees its slot for a new entry in the same cycle,
+        # rather than that depending on where the held ticker sorts alphabetically.
+        self.manage_open_positions(now)
+
         for ticker in self.config.auto_tradeable_universe():
-            if self.position_manager.has_open_position(ticker):
-                self.manage_open_positions(now)
-            else:
+            if not self.position_manager.has_open_position(ticker):
                 self.evaluate_and_maybe_enter(ticker, now)
 
 

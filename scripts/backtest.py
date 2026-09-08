@@ -153,6 +153,11 @@ def main() -> int:
         help="EXPERIMENT override: skip ORB_PULLBACK_CONTINUATION entirely and always try "
              "VWAP_RECLAIM instead (applied in-memory only).",
     )
+    parser.add_argument(
+        "--max-concurrent-positions", type=int, default=None,
+        help="EXPERIMENT override: replaces behavior.max_concurrent_positions, how many "
+             "positions may be open at once (applied in-memory only).",
+    )
     args = parser.parse_args()
     if args.days and args.first_days:
         print("--days and --first-days are mutually exclusive", file=sys.stderr)
@@ -168,6 +173,7 @@ def main() -> int:
         args.max_risk_dollars is not None, args.stop_atr_multiplier is not None,
         args.max_hold_days is not None, args.allow_red_overnight, args.scale_target_with_stop,
         args.preferred_r_min is not None, args.disable_orb,
+        args.max_concurrent_positions is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -193,6 +199,12 @@ def main() -> int:
         if args.disable_orb:
             config.strategy["setups"]["enable_orb_pullback"] = False
             print("  setups.enable_orb_pullback = False")
+        if args.max_concurrent_positions is not None:
+            # Read in two places (PositionManager construction and RiskManager's
+            # gate), both off config.risk -- overriding here, before TradingBot is
+            # built below, covers both.
+            config.risk["behavior"]["max_concurrent_positions"] = args.max_concurrent_positions
+            print(f"  behavior.max_concurrent_positions = {args.max_concurrent_positions}")
         print()
 
     universe = config.auto_tradeable_universe()
