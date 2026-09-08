@@ -35,6 +35,7 @@ from data.etrade_market_data import ETradeMarketDataProvider
 from data.indicators import IndicatorSnapshot, compute_snapshot
 from data.market_data import InMemoryMarketDataProvider, MarketDataProvider
 from execution.order_manager import OrderManager
+from models.bar import Bar
 from models.signal import Decision
 from models.trade import ExitReason
 from positions.overnight import evaluate_overnight_eligibility, shares_to_hold_overnight
@@ -77,6 +78,14 @@ def _same_session_day(bar_timestamp: datetime, now: datetime) -> bool:
     if now.tzinfo is not None and bar_timestamp.tzinfo is not None:
         return bar_timestamp.astimezone(now.tzinfo).date() == now.date()
     return bar_timestamp.date() == now.date()
+
+
+def _prior_session_close(bars: List[Bar], now: datetime) -> Optional[float]:
+    """Close of the most recent bar NOT in today's session -- the benchmark's last
+    settled price, used for trend confirmation that (unlike VWAP) doesn't reset every
+    morning. None on a cold start with no prior-day bars yet."""
+    prior_bars = [b for b in bars if not _same_session_day(b.timestamp, now)]
+    return prior_bars[-1].close if prior_bars else None
 
 
 def current_window(windows: List[ScheduleWindow], now: datetime) -> Optional[ScheduleWindow]:
@@ -173,11 +182,20 @@ class TradingBot:
             window.min_score_key if window else "midday_window", 80
         )
 
+        # Same-session filter as run_overnight_review below -- state.bars accumulates
+        # every bar ever pushed with no day-boundary reset (see _snapshot_for), so
+        # setup detection and the chase rule (which assume "bars" means "today's
+        # session, in order") need this slice too, or they silently treat day one's
+        # opening range/open as if it were today's.
+        today_stock_bars = [b for b in stock_state.bars if _same_session_day(b.timestamp, now)]
+        today_bench_bars = [b for b in bench_state.bars if _same_session_day(b.timestamp, now)]
+
         ctx = EvaluationContext(
             ticker=ticker,
             benchmark=ticker_cfg.benchmark,
-            bars=stock_state.bars,
-            benchmark_bars=bench_state.bars,
+            bars=today_stock_bars,
+            benchmark_bars=today_bench_bars,
+            benchmark_prior_close=_prior_session_close(bench_state.bars, now),
             snapshot=stock_snapshot,
             benchmark_snapshot=bench_snapshot,
             max_spread_pct=ticker_cfg.max_spread_pct,

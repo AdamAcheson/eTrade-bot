@@ -154,6 +154,8 @@ indicators:
 
 eligibility:
   min_relative_volume: 1.20
+  require_ema_alignment: true       # stock's own price vs its 9EMA (separate toggle
+                                     # from benchmark_confirmation's below)
 
 chase_rule:
   max_consecutive_large_green_candles: 3
@@ -163,8 +165,13 @@ chase_rule:
 
 benchmark_confirmation:
   require_price_above_vwap: true
+  vwap_tolerance_pct: 0.0            # benchmark may trade up to this % below its own
+                                      # VWAP and still confirm; 0.0 = strictly above
   require_ema_alignment: true       # 9EMA >= 20EMA
   require_no_fresh_intraday_low: true
+  min_trend_pct: 0.0                 # second way to satisfy require_price_above_vwap:
+                                      # confirms if >= this % above the PRIOR session's
+                                      # close, even while below today's VWAP. 0.0 disables.
 
 setups:
   opening_range_minutes: 10          # 9:30-9:40

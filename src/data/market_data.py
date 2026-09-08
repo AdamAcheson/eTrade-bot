@@ -25,9 +25,10 @@ class Quote:
 
 @dataclass
 class TickerMarketState:
-    """Rolling state for one symbol: bars for the current session plus the latest
-    quote. `received_at` (wall-clock) drives staleness checks independent of the
-    market timestamp on the data itself."""
+    """Rolling state for one symbol: every bar ever pushed (no day-boundary reset --
+    callers that need "today only" must filter by timestamp themselves, see
+    main.py's _same_session_day) plus the latest quote. `received_at` (wall-clock)
+    drives staleness checks independent of the market timestamp on the data itself."""
 
     ticker: str
     bars: List[Bar] = field(default_factory=list)

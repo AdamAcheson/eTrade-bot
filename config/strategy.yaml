@@ -14,6 +14,14 @@ eligibility:
   # backtest's rejection-reason breakdown (REJECTED_LOW_VOLUME was a meaningful
   # contributor).
   min_relative_volume: 1.10
+  # Stock's own price must be above its 9EMA to enter. Separate from
+  # benchmark_confirmation.require_ema_alignment below (that one gates the
+  # benchmark, this one gates the stock) -- previously this side had no config
+  # toggle at all and was rejecting almost as often as REJECTED_DATA_QUALITY in the
+  # 60-day backtest. Disabled here for the same reason the benchmark-side check
+  # was already dropped: it isn't the bottleneck we want (see min_trend_pct below
+  # for the actual "too few trades in a trending sector" fix).
+  require_ema_alignment: false
 
 chase_rule:
   max_consecutive_large_green_candles: 3
@@ -29,6 +37,15 @@ benchmark_confirmation:
   vwap_tolerance_pct: 0.15
   require_ema_alignment: false
   require_no_fresh_intraday_low: true
+  # Second, independent way to satisfy require_price_above_vwap: even when the
+  # benchmark is below TODAY's VWAP, it still confirms if it's at least this % above
+  # the PRIOR session's close. VWAP resets every morning, so a sector genuinely
+  # trending up over days/weeks (mining, per the user's read of the tape) can still
+  # read "below VWAP" for large stretches of any single day -- this catches that
+  # multi-day trend instead of only same-day price action. 0.0 disables this path
+  # (original VWAP-only behavior). 0.3 is a starting point, not a backtested
+  # optimum -- re-tune after seeing its effect on trade count and win rate.
+  min_trend_pct: 0.3
 
 setups:
   opening_range_minutes: 10

@@ -74,6 +74,46 @@ def test_benchmark_confirmation_fails_ema_not_aligned():
     assert result.reason == "benchmark_ema_not_aligned"
 
 
+def test_benchmark_confirmation_trend_path_confirms_despite_below_vwap():
+    # last_price=50.5, vwap=51.0 -> below VWAP even with tolerance, but +1.0% vs a
+    # prior close of 50.0 clears a 0.5% trend threshold -> confirms anyway.
+    result = benchmark_confirmation(
+        base_bench_snapshot(vwap=51.0), base_bench_bars(),
+        vwap_tolerance_pct=0.15, prior_session_close=50.0, min_trend_pct=0.5,
+    )
+    assert result.confirmed
+
+
+def test_benchmark_confirmation_trend_path_still_rejects_below_threshold():
+    # Same +1.0% move, but the configured trend threshold (2.0%) isn't met.
+    result = benchmark_confirmation(
+        base_bench_snapshot(vwap=51.0), base_bench_bars(),
+        vwap_tolerance_pct=0.15, prior_session_close=50.0, min_trend_pct=2.0,
+    )
+    assert not result.confirmed
+    assert result.reason == "benchmark_below_vwap"
+
+
+def test_benchmark_confirmation_trend_path_disabled_by_default():
+    # min_trend_pct=0.0 (the default) must reproduce the original VWAP-only
+    # behavior even when a prior close is supplied.
+    result = benchmark_confirmation(
+        base_bench_snapshot(vwap=51.0), base_bench_bars(), prior_session_close=50.0,
+    )
+    assert not result.confirmed
+
+
+def test_benchmark_confirmation_trend_path_no_prior_close_falls_back_to_vwap():
+    # Cold start: no prior-day bars yet, so the trend path can't be evaluated even
+    # though min_trend_pct is enabled -- must not crash or silently confirm.
+    result = benchmark_confirmation(
+        base_bench_snapshot(vwap=51.0), base_bench_bars(),
+        vwap_tolerance_pct=0.15, prior_session_close=None, min_trend_pct=0.5,
+    )
+    assert not result.confirmed
+    assert result.reason == "benchmark_below_vwap"
+
+
 # --- unit tests: basic eligibility -------------------------------------------
 
 def test_basic_eligibility_passes():
@@ -97,6 +137,32 @@ def test_basic_eligibility_fails_wide_spread():
     result = basic_eligibility(base_stock_snapshot(bid=10.00, ask=10.40), max_spread_pct=0.20, min_relative_volume=1.20)
     assert not result.eligible
     assert result.reason == "REJECTED_WIDE_SPREAD"
+
+
+def test_basic_eligibility_fails_ema_not_aligned_by_default():
+    # last_price above VWAP (passes that check) but below its own 9EMA.
+    result = basic_eligibility(
+        base_stock_snapshot(last_price=10.15, vwap=10.00, ema_9=10.20),
+        max_spread_pct=0.20, min_relative_volume=1.20,
+    )
+    assert not result.eligible
+    assert result.reason == "REJECTED_EMA_ALIGNMENT"
+
+
+def test_basic_eligibility_ema_check_disabled_admits_below_ema9():
+    result = basic_eligibility(
+        base_stock_snapshot(last_price=10.15, vwap=10.00, ema_9=10.20),
+        max_spread_pct=0.20, min_relative_volume=1.20, require_ema_alignment=False,
+    )
+    assert result.eligible
+
+
+def test_basic_eligibility_ema_check_disabled_does_not_require_ema9_warmed_up():
+    result = basic_eligibility(
+        base_stock_snapshot(ema_9=None),
+        max_spread_pct=0.20, min_relative_volume=1.20, require_ema_alignment=False,
+    )
+    assert result.eligible
 
 
 # --- unit tests: chase / overextension rule -----------------------------------

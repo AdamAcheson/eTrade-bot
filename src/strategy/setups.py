@@ -22,14 +22,22 @@ def basic_eligibility(
     max_spread_pct: float,
     min_relative_volume: float,
     min_liquidity_volume: float = 0.0,
+    require_ema_alignment: bool = True,
 ) -> EligibilityResult:
-    if snapshot.vwap is None or snapshot.ema_9 is None:
+    """require_ema_alignment gates the STOCK's own price against its 9EMA -- separate
+    from benchmark_confirmation's require_ema_alignment, which gates the benchmark.
+    Previously this stock-side check was unconditional with no config toggle at all,
+    unlike its benchmark-side counterpart. As with that one, disabling it also stops
+    requiring ema_9 to have warmed up, since nothing downstream needs it anymore."""
+    if snapshot.vwap is None:
+        return EligibilityResult(False, "REJECTED_DATA_QUALITY")
+    if require_ema_alignment and snapshot.ema_9 is None:
         return EligibilityResult(False, "REJECTED_DATA_QUALITY")
 
     if not (snapshot.last_price > snapshot.vwap):
         return EligibilityResult(False, "REJECTED_BELOW_VWAP")
 
-    if not (snapshot.last_price > snapshot.ema_9):
+    if require_ema_alignment and not (snapshot.last_price > snapshot.ema_9):
         return EligibilityResult(False, "REJECTED_EMA_ALIGNMENT")
 
     if snapshot.relative_volume is None or snapshot.relative_volume < min_relative_volume:

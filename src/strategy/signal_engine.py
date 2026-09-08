@@ -38,6 +38,7 @@ class EvaluationContext:
     minimum_entry_score: float
     now: datetime
     profit_target_pct: Optional[Sequence[float]] = None
+    benchmark_prior_close: Optional[float] = None
 
 
 def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: dict) -> Signal:
@@ -82,6 +83,8 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         require_ema_alignment=bench_cfg["require_ema_alignment"],
         require_no_fresh_intraday_low=bench_cfg["require_no_fresh_intraday_low"],
         vwap_tolerance_pct=bench_cfg.get("vwap_tolerance_pct", 0.0),
+        prior_session_close=ctx.benchmark_prior_close,
+        min_trend_pct=bench_cfg.get("min_trend_pct", 0.0),
     )
     if not bench_result.confirmed:
         signal.extra["benchmark_rejection_detail"] = bench_result.reason
@@ -91,6 +94,7 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         ctx.snapshot,
         max_spread_pct=ctx.max_spread_pct,
         min_relative_volume=strategy_config["eligibility"]["min_relative_volume"],
+        require_ema_alignment=strategy_config["eligibility"].get("require_ema_alignment", True),
     )
     if not elig.eligible:
         return reject(RejectionReason(elig.reason))
