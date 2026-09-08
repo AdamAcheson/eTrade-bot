@@ -110,7 +110,16 @@ def find_missed_opportunities_multiday(rejected_signals, bars_by_symbol: Dict[st
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=None, help="Limit to the most recent N trading days (default: all cached)")
+    parser.add_argument(
+        "--first-days", type=int, default=None,
+        help="Limit to the OLDEST N trading days instead of the most recent -- for validating "
+             "against a holdout slice that hasn't already been eyeballed while tuning config/strategy.yaml. "
+             "Mutually exclusive with --days.",
+    )
     args = parser.parse_args()
+    if args.days and args.first_days:
+        print("--days and --first-days are mutually exclusive", file=sys.stderr)
+        return 1
 
     try:
         config: AppConfig = load_config()
@@ -135,6 +144,8 @@ def main() -> int:
     all_days = sorted({day for s in all_symbols for day in days_by_symbol[s].keys()})
     if args.days:
         all_days = all_days[-args.days:]
+    elif args.first_days:
+        all_days = all_days[:args.first_days]
     print(f"Backtesting {len(all_days)} trading days: {all_days[0]} to {all_days[-1]}")
 
     baselines_by_symbol = {s: build_volume_baselines(days_by_symbol[s]) for s in all_symbols}
