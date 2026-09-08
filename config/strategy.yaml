@@ -18,7 +18,11 @@ chase_rule:
 
 benchmark_confirmation:
   require_price_above_vwap: true
-  require_ema_alignment: true
+  # Benchmark may trade up to this % below its own VWAP and still confirm, instead
+  # of requiring strictly above -- softens noise right around the line without
+  # dropping the VWAP check entirely. 0.0 = original strict behavior.
+  vwap_tolerance_pct: 0.15
+  require_ema_alignment: false
   require_no_fresh_intraday_low: true
 
 setups:

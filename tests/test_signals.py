@@ -50,6 +50,24 @@ def test_benchmark_confirmation_fails_below_vwap():
     assert result.reason == "benchmark_below_vwap"
 
 
+def test_benchmark_confirmation_tolerance_allows_small_near_miss():
+    # last_price=50.5, vwap=50.55 -> price is 0.099% below VWAP, within a 0.15% band.
+    result = benchmark_confirmation(base_bench_snapshot(vwap=50.55), base_bench_bars(), vwap_tolerance_pct=0.15)
+    assert result.confirmed
+
+
+def test_benchmark_confirmation_tolerance_still_rejects_beyond_the_band():
+    # last_price=50.5, vwap=51.0 -> ~0.98% below VWAP, well outside a 0.15% band.
+    result = benchmark_confirmation(base_bench_snapshot(vwap=51.0), base_bench_bars(), vwap_tolerance_pct=0.15)
+    assert not result.confirmed
+    assert result.reason == "benchmark_below_vwap"
+
+
+def test_benchmark_confirmation_zero_tolerance_is_original_strict_behavior():
+    result = benchmark_confirmation(base_bench_snapshot(vwap=50.55), base_bench_bars(), vwap_tolerance_pct=0.0)
+    assert not result.confirmed
+
+
 def test_benchmark_confirmation_fails_ema_not_aligned():
     result = benchmark_confirmation(base_bench_snapshot(ema_9=49.9, ema_20=50.2), base_bench_bars())
     assert not result.confirmed
@@ -148,6 +166,18 @@ def test_scenario_5_poor_risk_reward_rejects(config):
     signal = evaluate_ticker(ctx, config.strategy, config.risk)
     assert signal.decision == Decision.REJECTED
     assert signal.rejection_reason == RejectionReason.REJECTED_POOR_RISK_REWARD
+
+
+def test_missing_atr_rejects_data_quality_instead_of_crashing(config):
+    # Regression test: with require_ema_alignment disabled, benchmark confirmation
+    # no longer implicitly guarantees ATR14 has warmed up on the stock side (EMA20
+    # needs ~100 min, ATR14 only ~75 min -- they'd previously always overlap).
+    # Without an explicit guard, a matched setup would crash computing the stop
+    # price (atr_multiplier * None).
+    ctx = make_ctx(config, snapshot=base_stock_snapshot(atr=None, atr_percent=None))
+    signal = evaluate_ticker(ctx, config.strategy, config.risk)
+    assert signal.decision == Decision.REJECTED
+    assert signal.rejection_reason == RejectionReason.REJECTED_DATA_QUALITY
 
 
 def test_time_window_rejected_outside_entry_window(config):

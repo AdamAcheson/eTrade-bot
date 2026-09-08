@@ -81,6 +81,7 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         require_price_above_vwap=bench_cfg["require_price_above_vwap"],
         require_ema_alignment=bench_cfg["require_ema_alignment"],
         require_no_fresh_intraday_low=bench_cfg["require_no_fresh_intraday_low"],
+        vwap_tolerance_pct=bench_cfg.get("vwap_tolerance_pct", 0.0),
     )
     if not bench_result.confirmed:
         signal.extra["benchmark_rejection_detail"] = bench_result.reason
@@ -93,6 +94,14 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
     )
     if not elig.eligible:
         return reject(RejectionReason(elig.reason))
+
+    # ATR must be available before the chase rule (which silently no-ops on None,
+    # rather than rejecting) and the stop-price calculation (which crashes on None)
+    # both run. Previously masked by benchmark confirmation's EMA-20 gate requiring
+    # ~100 minutes of warm-up, well past ATR14's ~75-minute requirement -- exposed
+    # once require_ema_alignment could be disabled independently of ATR readiness.
+    if ctx.snapshot.atr is None:
+        return reject(RejectionReason.REJECTED_DATA_QUALITY)
 
     chase_cfg = strategy_config["chase_rule"]
     chase = is_overextended(
