@@ -131,6 +131,7 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         vwap_value=ctx.snapshot.vwap,
     )
     if not setup.matched:
+        signal.extra["orb_rejection_detail"] = setup.reason
         setup = detect_vwap_reclaim(ctx.bars, lookback_bars=setup_cfg["vwap_reclaim_lookback_bars"])
 
     if not setup.matched:
