@@ -22,12 +22,42 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from config_loader import load_config, ConfigError  # noqa: E402
-from data.historical_data import cache_path, save_bars_csv, DEFAULT_CACHE_DIR  # noqa: E402
+from data.historical_data import cache_path, load_bars_csv, save_bars_csv, DEFAULT_CACHE_DIR  # noqa: E402
 from data.twelvedata_historical_data import TwelveDataError, fetch_twelvedata_bars  # noqa: E402
+
+
+_ET = ZoneInfo("America/New_York")
+
+
+def merge_bars(existing, new):
+    """Combine two bar lists, de-duplicating on timestamp (new wins) and returning
+    them in chronological order. Lets a deep backfill run across several days
+    without re-fetching -- or losing -- what previous runs already cached."""
+    by_ts = {b.timestamp: b for b in existing}
+    by_ts.update({b.timestamp: b for b in new})
+    return sorted(by_ts.values(), key=lambda b: b.timestamp)
+
+
+def missing_ranges(existing, start, end):
+    """Which [from, to] windows still need fetching to cover start..end, given
+    what's already cached. Cached bars are tz-aware America/New_York (see
+    twelvedata_historical_data.py), so start/end must be too -- comparing naive
+    against aware datetimes raises TypeError (this repo has been bitten by that
+    before, see the bar-close fix in commit f307434)."""
+    if not existing:
+        return [(start, end)]
+    have_start, have_end = existing[0].timestamp, existing[-1].timestamp
+    gaps = []
+    if start < have_start:
+        gaps.append((start, have_start))      # extend backwards (the deep-history case)
+    if end > have_end:
+        gaps.append((have_end, end))          # top up recent bars
+    return gaps
 
 
 def main() -> int:
@@ -46,15 +76,19 @@ def main() -> int:
     benchmarks = sorted({config.benchmark_of(t) for t in universe})
     symbols = sorted(set(universe) | set(benchmarks))
 
-    end = datetime.now()
+    end = datetime.now(tz=_ET)
     start = end - timedelta(days=args.days)
 
     print(f"Fetching {len(symbols)} symbols ({args.days}d, 5m bars) from Twelve Data into {DEFAULT_CACHE_DIR} ...")
     ok, failed = [], []
     for i, symbol in enumerate(symbols):
         path = cache_path(symbol)
-        if not args.refresh and os.path.exists(path):
-            print(f"  {symbol}: cached, skipping")
+        existing = []
+        if os.path.exists(path) and not args.refresh:
+            existing = load_bars_csv(path)
+        gaps = missing_ranges(existing, start, end)
+        if not gaps:
+            print(f"  {symbol}: already covers {args.days}d, skipping")
             ok.append(symbol)
             continue
         if i > 0:
@@ -63,20 +97,28 @@ def main() -> int:
             # burst past the free tier's 8-credits/minute cap.
             time.sleep(8.0)
         try:
-            bars = fetch_twelvedata_bars(symbol, start, end)
+            fetched = []
+            for gap_start, gap_end in gaps:
+                fetched.extend(fetch_twelvedata_bars(symbol, gap_start, gap_end))
+            bars = merge_bars(existing, fetched)
             if not bars:
                 print(f"  {symbol}: FAILED -- no bars returned")
                 failed.append(symbol)
                 continue
+            # Write after every symbol, so a run that stops partway (credits
+            # exhausted, network) keeps everything it already fetched.
             save_bars_csv(bars, path)
-            print(f"  {symbol}: {len(bars)} bars ({bars[0].timestamp.date()} to {bars[-1].timestamp.date()})")
+            added = len(bars) - len(existing)
+            print(f"  {symbol}: {len(bars)} bars (+{added} new) "
+                  f"{bars[0].timestamp.date()} to {bars[-1].timestamp.date()}")
             ok.append(symbol)
         except TwelveDataError as e:
             message = str(e).lower()
             if "credit" in message or "limit" in message:
                 print(f"  {symbol}: STOPPING -- free-tier credits exhausted for today ({e})")
                 print(f"\n{len(ok)} symbols cached so far, {len(symbols) - len(ok)} remaining.")
-                print("Re-run this script (without --refresh) tomorrow to pick up where it left off.")
+                print("Re-run this script (without --refresh) tomorrow -- it now merges into the "
+                  "existing cache and only fetches the still-missing date ranges.")
                 return 1
             print(f"  {symbol}: FAILED -- {e}")
             failed.append(symbol)
