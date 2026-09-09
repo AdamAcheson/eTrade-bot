@@ -122,6 +122,13 @@ def main() -> int:
                 return 1
             print(f"  {symbol}: FAILED -- {e}")
             failed.append(symbol)
+        except Exception as e:  # noqa: BLE001 -- see below
+            # A multi-hour backfill must not die on one symbol. Anything the data
+            # layer didn't already classify (a parse surprise, an unexpected
+            # payload shape) is logged and skipped; whatever was cached before it
+            # is already on disk, and re-running fills the gap.
+            print(f"  {symbol}: FAILED -- unexpected {type(e).__name__}: {e}")
+            failed.append(symbol)
 
     print(f"\nDone. {len(ok)} succeeded, {len(failed)} failed.")
     if failed:

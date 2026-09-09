@@ -44,10 +44,29 @@ def _api_key(api_key: Optional[str] = None) -> str:
     return key
 
 
+def _get_with_retry(params: dict, timeout: float, attempts: int = 4):
+    """A deep backfill makes hundreds of calls over hours, so a single transient
+    network blip must not end the run -- one killed a 3-year pull on its fourth
+    symbol. Retries connection-level failures with exponential backoff; HTTP
+    responses (including rate-limit ones) are returned to the caller to interpret,
+    since those are answers, not failures to reach the server."""
+    delay = 2.0
+    for attempt in range(attempts):
+        try:
+            return requests.get(TWELVEDATA_URL, params=params, timeout=timeout)
+        except requests.exceptions.RequestException as e:
+            if attempt == attempts - 1:
+                raise TwelveDataError(
+                    f"network error after {attempts} attempts for {params.get('symbol')}: {e}"
+                ) from e
+            time.sleep(delay)
+            delay *= 2
+    raise AssertionError("unreachable")
+
+
 def _fetch_window(symbol: str, window_start: datetime, window_end: datetime, api_key: str, interval: str, timeout: float) -> List[Bar]:
-    resp = requests.get(
-        TWELVEDATA_URL,
-        params={
+    resp = _get_with_retry(
+        {
             "symbol": symbol,
             "interval": interval,
             "start_date": window_start.strftime("%Y-%m-%d %H:%M:%S"),

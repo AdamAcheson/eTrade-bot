@@ -136,46 +136,73 @@ def find_missed_opportunities(
     return missed
 
 
+# Minimum trades in EACH side of a comparison before it is worth reporting, and the
+# minimum win-rate gap that counts as a difference. These are crude floors, not
+# significance tests -- but without them this function reported splits computed from
+# as few as three trades ("entries around 15:00 outperformed 11:00, 67% vs 16%" came
+# from a 3-trade bucket) and from win rates that differed only in rounding ("22% vs
+# 22%"). Guidance drawn from a handful of trades is worse than none, because it reads
+# as evidence. Raise these as the sample grows.
+MIN_GROUP_SAMPLE = 20
+MIN_WIN_RATE_GAP = 0.20
+MIN_TICKER_SAMPLE = 10
+
+
 def generate_feedback_suggestions(trades: Sequence[Trade], signals: Sequence[Signal]) -> List[str]:
     """Read-only observational suggestions (spec section 30). Never applied
-    automatically -- a human must approve any resulting change to config/*.yaml."""
+    automatically -- a human must approve any resulting change to config/*.yaml.
+
+    Every comparison here is gated on a minimum sample per side and a minimum
+    effect size, and reports the counts it used so the reader can judge for
+    themselves. A suggestion appearing does NOT mean the effect is real; with a
+    P&L dominated by a few outsized trades, most splits of a few hundred trades
+    are noise."""
     suggestions: List[str] = []
     closed = [t for t in trades if t.net_profit is not None]
     if not closed:
         return suggestions
 
-    high_rvol_tickers = {s.ticker: s.relative_volume for s in signals if s.entry_candidate}
-    high_rvol_trades = [t for t in closed if high_rvol_tickers.get(t.ticker, 0) > 1.5]
-    low_rvol_trades = [t for t in closed if 0 < high_rvol_tickers.get(t.ticker, 0) <= 1.5]
-    if high_rvol_trades and low_rvol_trades:
-        hi_wr = sum(1 for t in high_rvol_trades if t.net_profit > 0) / len(high_rvol_trades)
-        lo_wr = sum(1 for t in low_rvol_trades if t.net_profit > 0) / len(low_rvol_trades)
-        if hi_wr > lo_wr:
+    def win_rate(ts: Sequence[Trade]) -> float:
+        return sum(1 for t in ts if t.net_profit > 0) / len(ts)
+
+    # Match each trade to ITS OWN entry signal. Previously this built a
+    # {ticker: relative_volume} dict, which kept only the last signal per ticker and
+    # then classified every one of that ticker's trades by that single value -- so a
+    # ticker traded nine times had all nine bucketed by whichever signal came last.
+    rvol_by_entry = {
+        (s.ticker, s.timestamp): s.relative_volume
+        for s in signals if s.entry_candidate and s.relative_volume is not None
+    }
+    high_rvol = [t for t in closed if rvol_by_entry.get((t.ticker, t.entry_time), 0) > 1.5]
+    low_rvol = [t for t in closed if 0 < rvol_by_entry.get((t.ticker, t.entry_time), 0) <= 1.5]
+    if len(high_rvol) >= MIN_GROUP_SAMPLE and len(low_rvol) >= MIN_GROUP_SAMPLE:
+        hi_wr, lo_wr = win_rate(high_rvol), win_rate(low_rvol)
+        if hi_wr - lo_wr >= MIN_WIN_RATE_GAP:
             suggestions.append(
-                f"Trades with RVOL > 1.5 had a higher win rate ({hi_wr:.0%} vs {lo_wr:.0%})."
+                f"Trades with RVOL > 1.5 had a higher win rate ({hi_wr:.0%} of {len(high_rvol)} "
+                f"vs {lo_wr:.0%} of {len(low_rvol)})."
             )
 
     by_hour: Dict[int, List[Trade]] = defaultdict(list)
     for t in closed:
         by_hour[t.entry_time.hour].append(t)
-    hour_win_rates = {
-        h: sum(1 for t in ts if t.net_profit > 0) / len(ts)
-        for h, ts in by_hour.items() if ts
-    }
-    if len(hour_win_rates) > 1:
-        best_hour = max(hour_win_rates, key=hour_win_rates.get)
-        worst_hour = min(hour_win_rates, key=hour_win_rates.get)
-        if hour_win_rates[best_hour] - hour_win_rates[worst_hour] >= 0.2:
+    # Only hours with enough trades to compare are eligible on either side.
+    eligible = {h: ts for h, ts in by_hour.items() if len(ts) >= MIN_GROUP_SAMPLE}
+    if len(eligible) > 1:
+        best = max(eligible, key=lambda h: win_rate(eligible[h]))
+        worst = min(eligible, key=lambda h: win_rate(eligible[h]))
+        if win_rate(eligible[best]) - win_rate(eligible[worst]) >= MIN_WIN_RATE_GAP:
             suggestions.append(
-                f"Entries around {best_hour}:00 outperformed entries around {worst_hour}:00 "
-                f"({hour_win_rates[best_hour]:.0%} vs {hour_win_rates[worst_hour]:.0%} win rate)."
+                f"Entries around {best}:00 outperformed entries around {worst}:00 "
+                f"({win_rate(eligible[best]):.0%} of {len(eligible[best])} vs "
+                f"{win_rate(eligible[worst]):.0%} of {len(eligible[worst])} trades)."
             )
 
     stopped_before_target = [
         t for t in closed
         if t.exit_reason and t.exit_reason.value == "STOP_HIT" and t.maximum_favorable_excursion > 0
     ]
-    if stopped_before_target and len(stopped_before_target) / len(closed) >= 0.3:
+    if len(closed) >= MIN_GROUP_SAMPLE and len(stopped_before_target) / len(closed) >= 0.3:
         suggestions.append(
             f"{len(stopped_before_target)}/{len(closed)} stopped-out trades had moved favorably "
             f"first -- consider reviewing the ATR stop multiplier."
@@ -185,9 +212,9 @@ def generate_feedback_suggestions(trades: Sequence[Trade], signals: Sequence[Sig
     for t in closed:
         by_ticker[t.ticker].append(t)
     for ticker, ts in by_ticker.items():
-        if len(ts) >= 3:
-            wr = sum(1 for t in ts if t.net_profit > 0) / len(ts)
-            if wr <= 0.25:
-                suggestions.append(f"{ticker} trades had a low win rate ({wr:.0%} over {len(ts)} trades).")
+        if len(ts) >= MIN_TICKER_SAMPLE and win_rate(ts) <= 0.25:
+            suggestions.append(
+                f"{ticker} trades had a low win rate ({win_rate(ts):.0%} over {len(ts)} trades)."
+            )
 
     return suggestions

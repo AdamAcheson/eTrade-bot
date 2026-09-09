@@ -85,3 +85,41 @@ def test_missing_ranges_requires_matching_awareness():
     existing = [bar(10)]
     with pytest.raises(TypeError):
         missing_ranges(existing, datetime(2026, 1, 1), datetime(2026, 4, 1))
+
+
+# --- transient network resilience -------------------------------------------
+
+def test_get_with_retry_recovers_from_a_transient_failure(monkeypatch):
+    """A single blip killed a 3-year backfill on its fourth symbol; connection
+    failures must be retried rather than ending the run."""
+    import requests
+    from data import twelvedata_historical_data as td
+
+    calls = {"n": 0}
+
+    class Resp:
+        status_code = 200
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise requests.exceptions.ProxyError("connection refused")
+        return Resp()
+
+    monkeypatch.setattr("requests.get", flaky)
+    monkeypatch.setattr(td.time, "sleep", lambda s: None)
+
+    assert td._get_with_retry({"symbol": "AG"}, timeout=5).status_code == 200
+    assert calls["n"] == 3
+
+
+def test_get_with_retry_gives_up_as_a_typed_error(monkeypatch):
+    import requests
+    from data import twelvedata_historical_data as td
+
+    monkeypatch.setattr("requests.get", lambda *a, **k: (_ for _ in ()).throw(
+        requests.exceptions.ConnectionError("down")))
+    monkeypatch.setattr(td.time, "sleep", lambda s: None)
+
+    with pytest.raises(td.TwelveDataError, match="network error"):
+        td._get_with_retry({"symbol": "AG"}, timeout=5, attempts=3)
