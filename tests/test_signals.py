@@ -39,6 +39,17 @@ def make_ctx(config, **overrides):
     return EvaluationContext(**defaults)
 
 
+def orb_strategy(config):
+    """config/strategy.yaml ships with enable_orb_pullback: false (ORB lost money
+    on a real 47-trade sample -- see that file's comment). The spec section 35
+    scenarios below exercise the ORB detection logic itself, so they enable it
+    explicitly rather than depending on whatever the deployed default happens to
+    be."""
+    strategy = copy.deepcopy(config.strategy)
+    strategy["setups"]["enable_orb_pullback"] = True
+    return strategy
+
+
 # --- unit tests: benchmark confirmation -------------------------------------
 
 def test_benchmark_confirmation_passes_when_bullish():
@@ -197,7 +208,7 @@ def test_overextended_three_consecutive_large_green_candles():
 
 def test_scenario_1_benchmark_and_stock_bullish_valid_pullback_enters(config):
     ctx = make_ctx(config)
-    signal = evaluate_ticker(ctx, config.strategy, config.risk)
+    signal = evaluate_ticker(ctx, orb_strategy(config), config.risk)
     assert signal.decision == Decision.ENTRY_CANDIDATE
     assert signal.setup_type == "ORB_PULLBACK_CONTINUATION"
     assert signal.entry_price == pytest.approx(10.40)
@@ -210,7 +221,7 @@ def test_scale_target_with_stop_ignores_fixed_profit_target_pct(config):
     # Same scenario-1 setup (ticker=AG, profit_target_pct=[3.0, 5.5] in tickers.yaml)
     # but with scale_target_with_stop on -- target should track the ACTUAL stop
     # distance (1.75x preferred_r_min) instead of the fixed % target.
-    strategy = copy.deepcopy(config.strategy)
+    strategy = orb_strategy(config)
     strategy["reward_risk"]["scale_target_with_stop"] = True
     ctx = make_ctx(config)
     signal = evaluate_ticker(ctx, strategy, config.risk)
@@ -264,7 +275,7 @@ def test_scenario_5_poor_risk_reward_rejects(config):
     # A much larger ATR widens the ATR-based stop far past the structural pullback
     # low, ballooning risk-per-share against a fixed percentage target -> R < 1.5.
     ctx = make_ctx(config, snapshot=base_stock_snapshot(atr=1.0))
-    signal = evaluate_ticker(ctx, config.strategy, config.risk)
+    signal = evaluate_ticker(ctx, orb_strategy(config), config.risk)
     assert signal.decision == Decision.REJECTED
     assert signal.rejection_reason == RejectionReason.REJECTED_POOR_RISK_REWARD
 

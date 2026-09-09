@@ -49,13 +49,17 @@ benchmark_confirmation:
 
 setups:
   # ORB_PULLBACK_CONTINUATION is the setup this strategy was originally designed
-  # around; VWAP_RECLAIM is the fallback tried only when it doesn't match. false
-  # skips ORB entirely and always tries VWAP_RECLAIM -- see backtest comparison in
-  # conversation/commit history: once a confirmation-window bug that was starving
-  # ORB of matches got fixed, ORB turned out to be a net-negative contributor on a
-  # real sample (47 trades, 12.8% win rate, -$2,092.83), while VWAP_RECLAIM alone
-  # carried the portfolio positive (89 trades, 22.5% win rate, +$5,736.72).
-  enable_orb_pullback: true
+  # around; VWAP_RECLAIM is the fallback tried only when it doesn't match. Now
+  # DISABLED: once a confirmation-window bug that had been starving ORB of matches
+  # was fixed (it required the confirmation candle to be the single most-recently-
+  # closed bar), ORB finally got a real sample -- and lost money. Over 183 trading
+  # days: ORB 47 trades, 12.8% win rate, -$2,092.83; VWAP_RECLAIM 89 trades, 22.5%
+  # win rate, +$5,736.72. Disabling ORB took the portfolio from +$3,643.88 to
+  # +$7,904.23, half from removing ORB's own losses and half from un-blocking 29
+  # VWAP_RECLAIM trades it had been crowding out (max_concurrent_positions is 1,
+  # so a mediocre setup does not merely underperform -- it displaces better ones).
+  # Set true to re-enable; scripts/backtest.py --disable-orb overrides either way.
+  enable_orb_pullback: false
   opening_range_minutes: 10
   pullback_max_atr_from_breakout: 1.0
   vwap_reclaim_lookback_bars: 6
