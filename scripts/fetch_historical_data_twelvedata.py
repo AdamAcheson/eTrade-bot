@@ -64,6 +64,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--refresh", action="store_true", help="Bypass the cache and re-fetch everything")
     parser.add_argument("--days", type=int, default=180, help="Calendar days of history to pull (default: 180 -- comfortably fits one day's free-tier credit budget for the full universe)")
+    parser.add_argument(
+        "--symbols", type=str, default=None,
+        help="Comma-separated symbols to fetch instead of the whole universe+benchmarks. "
+             "A deep backfill costs far more than one day of the free tier's credits, so "
+             "pulling only what a given experiment needs is usually the difference between "
+             "finishing today and not. Symbols outside the configured universe are allowed "
+             "(benchmarks are not tradeable tickers).",
+    )
     args = parser.parse_args()
 
     try:
@@ -72,9 +80,12 @@ def main() -> int:
         print(f"Config error: {e}", file=sys.stderr)
         return 1
 
-    universe = config.auto_tradeable_universe()
-    benchmarks = sorted({config.benchmark_of(t) for t in universe})
-    symbols = sorted(set(universe) | set(benchmarks))
+    if args.symbols:
+        symbols = sorted({s.strip().upper() for s in args.symbols.split(",") if s.strip()})
+    else:
+        universe = config.auto_tradeable_universe()
+        benchmarks = sorted({config.benchmark_of(t) for t in universe})
+        symbols = sorted(set(universe) | set(benchmarks))
 
     end = datetime.now(tz=_ET)
     start = end - timedelta(days=args.days)

@@ -172,6 +172,13 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--no-trailing", action="store_true",
+        help="EXPERIMENT override: force the ratcheting trailing stop OFF (applied in-memory "
+             "only). Needed to reproduce pre-trailing behavior now that config/strategy.yaml "
+             "enables it by default -- without this there is no way to run the old exit rule "
+             "as a comparison baseline.",
+    )
+    parser.add_argument(
         "--trailing-activate-r", type=float, default=None,
         help="EXPERIMENT override: R-multiple at which the trailing stop starts ratcheting "
              "(applied in-memory only). Requires --trailing-atr.",
@@ -217,6 +224,7 @@ def main() -> int:
         args.max_concurrent_positions is not None,
         args.max_position_size_dollars is not None, args.max_trades_per_day is not None,
         args.trailing_atr is not None, args.max_position_pct_equity is not None,
+        args.no_trailing,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -248,6 +256,9 @@ def main() -> int:
             # built below, covers both.
             config.risk["behavior"]["max_concurrent_positions"] = args.max_concurrent_positions
             print(f"  behavior.max_concurrent_positions = {args.max_concurrent_positions}")
+        if args.no_trailing:
+            config.strategy["trade_management"].setdefault("trailing_stop", {})["enabled"] = False
+            print("  trailing_stop = OFF")
         if args.trailing_atr is not None:
             ts = config.strategy["trade_management"].setdefault("trailing_stop", {})
             ts["enabled"] = True
