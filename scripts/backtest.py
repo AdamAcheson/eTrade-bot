@@ -172,6 +172,13 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--only-tickers", type=str, default=None,
+        help="Restrict the tradeable universe to these comma-separated tickers (in-memory "
+             "only). Needed to compare periods fairly: the deep-history holdout can only "
+             "trade the four tickers cached that far back, so measuring the recent period on "
+             "the same four separates a period effect from a universe-size effect.",
+    )
+    parser.add_argument(
         "--no-trailing", action="store_true",
         help="EXPERIMENT override: force the ratcheting trailing stop OFF (applied in-memory "
              "only). Needed to reproduce pre-trailing behavior now that config/strategy.yaml "
@@ -224,7 +231,7 @@ def main() -> int:
         args.max_concurrent_positions is not None,
         args.max_position_size_dollars is not None, args.max_trades_per_day is not None,
         args.trailing_atr is not None, args.max_position_pct_equity is not None,
-        args.no_trailing,
+        args.no_trailing, args.only_tickers is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -256,6 +263,19 @@ def main() -> int:
             # built below, covers both.
             config.risk["behavior"]["max_concurrent_positions"] = args.max_concurrent_positions
             print(f"  behavior.max_concurrent_positions = {args.max_concurrent_positions}")
+        if args.only_tickers is not None:
+            keep = {t.strip().upper() for t in args.only_tickers.split(",") if t.strip()}
+            missing = keep - set(config.tickers)
+            if missing:
+                print(f"unknown ticker(s): {', '.join(sorted(missing))}", file=sys.stderr)
+                return 1
+            # auto_tradeable_universe() filters on manual_only, so excluding a ticker
+            # means marking it manual-only -- the same switch that keeps NZAUF/AAGAF
+            # out, and one the strategy layer already honours everywhere.
+            for name, cfg in config.tickers.items():
+                if name not in keep:
+                    cfg.manual_only = True
+            print(f"  universe restricted to {', '.join(sorted(keep))}")
         if args.no_trailing:
             config.strategy["trade_management"].setdefault("trailing_stop", {})["enabled"] = False
             print("  trailing_stop = OFF")
