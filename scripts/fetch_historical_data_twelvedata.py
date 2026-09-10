@@ -81,7 +81,18 @@ def main() -> int:
         return 1
 
     if args.symbols:
-        symbols = sorted({s.strip().upper() for s in args.symbols.split(",") if s.strip()})
+        # Preserve the order given, de-duplicating. Sorting them would be actively
+        # harmful: a deep backfill can exhaust the day's credits partway, so the
+        # caller's ordering is a priority list -- fetch the symbols that unlock
+        # tradeable tickers first, and whatever is reached before the budget runs
+        # out is still a usable universe.
+        seen = set()
+        symbols = []
+        for raw in args.symbols.split(","):
+            sym = raw.strip().upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                symbols.append(sym)
     else:
         universe = config.auto_tradeable_universe()
         benchmarks = sorted({config.benchmark_of(t) for t in universe})
