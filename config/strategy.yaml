@@ -97,7 +97,7 @@ trade_management:
   # retraces exits at exactly $0.00. Default off: enabling it changes exit
   # behavior on every trade, so it has to be justified by a backtest, not assumed.
   trailing_stop:
-    enabled: false
+    enabled: true
     atr_multiplier: 1.0
     activate_at_r: 1.0
   partial_exit:

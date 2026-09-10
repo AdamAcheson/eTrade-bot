@@ -20,7 +20,11 @@ stops:
     high_volatility_speculative: 0.95
 
 safety:
-  max_trades_per_day: 3
+  # Raised from 3 alongside max_concurrent_positions below. Counterintuitively this
+  # cap was not limiting risk: with 5 slots and a cap of 3 the backtest's drawdown
+  # got WORSE (3.1% vs 2.5%), because the cap fills the day's slots with the first
+  # signals to arrive rather than leaving room for later ones.
+  max_trades_per_day: 15
   max_daily_loss_pct: 0.02
   max_consecutive_losses: 2
   max_position_size_dollars: 25000
@@ -38,7 +42,13 @@ safety:
 behavior:
   averaging_down: false
   pyramiding: false
-  max_concurrent_positions: 1
+  # 5, not 1: ~90% of qualifying signals were being rejected purely because the
+  # single slot was already occupied, and the crowded-out signals backtest as well
+  # as the taken ones (1 -> 5 slots: +39% net P&L for +0.3pp drawdown). Gains flatten
+  # past 5 -- 8 slots added only $571 more over the same 183 days.
+  # NOTE: 5 open positions in this universe is closer to one bet than five. On
+  # 2026-02-26 every ticker fell 32-41% together.
+  max_concurrent_positions: 5
 
 overnight:
   default_position_multiplier: 1.0
