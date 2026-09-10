@@ -51,9 +51,10 @@ def _get_with_retry(params: dict, timeout: float, attempts: int = 4):
     responses (including rate-limit ones) are returned to the caller to interpret,
     since those are answers, not failures to reach the server."""
     delay = 2.0
+    last_status = None
     for attempt in range(attempts):
         try:
-            return requests.get(TWELVEDATA_URL, params=params, timeout=timeout)
+            resp = requests.get(TWELVEDATA_URL, params=params, timeout=timeout)
         except requests.exceptions.RequestException as e:
             if attempt == attempts - 1:
                 raise TwelveDataError(
@@ -61,7 +62,26 @@ def _get_with_retry(params: dict, timeout: float, attempts: int = 4):
                 ) from e
             time.sleep(delay)
             delay *= 2
-    raise AssertionError("unreachable")
+            continue
+
+        # A 5xx is the server failing to answer, not an answer -- retry it exactly
+        # like a dropped connection. FCX died on a Cloudflare 521 ("origin down")
+        # mid-backfill and was skipped, because every HTTP response used to be
+        # handed straight back to the caller. 4xx is deliberately NOT retried: those
+        # are real answers (bad symbol, bad key), and 429 in particular is how the
+        # free tier reports exhausted credits, which the caller stops cleanly on
+        # rather than hammering.
+        if resp.status_code < 500:
+            return resp
+        last_status = resp.status_code
+        if attempt == attempts - 1:
+            break
+        time.sleep(delay)
+        delay *= 2
+
+    raise TwelveDataError(
+        f"HTTP {last_status} after {attempts} attempts for {params.get('symbol')}"
+    )
 
 
 def _fetch_window(symbol: str, window_start: datetime, window_end: datetime, api_key: str, interval: str, timeout: float) -> List[Bar]:

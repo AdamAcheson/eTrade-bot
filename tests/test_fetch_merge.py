@@ -123,3 +123,64 @@ def test_get_with_retry_gives_up_as_a_typed_error(monkeypatch):
 
     with pytest.raises(td.TwelveDataError, match="network error"):
         td._get_with_retry({"symbol": "AG"}, timeout=5, attempts=3)
+
+
+def test_get_with_retry_retries_a_5xx_then_succeeds(monkeypatch):
+    """A Cloudflare 521 ("origin down") killed FCX and SCCO mid-backfill: every HTTP
+    response used to be handed back to the caller, so a server that failed to answer
+    was treated as an answer and the symbol was skipped."""
+    import requests
+    from data import twelvedata_historical_data as td
+
+    calls = {"n": 0}
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        return Resp(521) if calls["n"] < 3 else Resp(200)
+
+    monkeypatch.setattr("requests.get", flaky)
+    monkeypatch.setattr(td.time, "sleep", lambda s: None)
+
+    assert td._get_with_retry({"symbol": "FCX"}, timeout=5).status_code == 200
+    assert calls["n"] == 3
+
+
+def test_get_with_retry_gives_up_on_a_persistent_5xx(monkeypatch):
+    import requests
+    from data import twelvedata_historical_data as td
+
+    class Resp:
+        status_code = 503
+
+    monkeypatch.setattr("requests.get", lambda *a, **k: Resp())
+    monkeypatch.setattr(td.time, "sleep", lambda s: None)
+
+    with pytest.raises(td.TwelveDataError, match="HTTP 503 after 3 attempts"):
+        td._get_with_retry({"symbol": "FCX"}, timeout=5, attempts=3)
+
+
+def test_4xx_is_returned_not_retried(monkeypatch):
+    """4xx responses are answers, not failures. 429 especially: that is how the free
+    tier reports exhausted credits, and the caller stops the run cleanly on it rather
+    than retrying into the limit."""
+    import requests
+    from data import twelvedata_historical_data as td
+
+    calls = {"n": 0}
+
+    class Resp:
+        status_code = 429
+
+    def once(*a, **k):
+        calls["n"] += 1
+        return Resp()
+
+    monkeypatch.setattr("requests.get", once)
+    monkeypatch.setattr(td.time, "sleep", lambda s: None)
+
+    assert td._get_with_retry({"symbol": "FCX"}, timeout=5).status_code == 429
+    assert calls["n"] == 1
