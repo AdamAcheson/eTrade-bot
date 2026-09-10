@@ -91,6 +91,15 @@ scoring:
 
 trade_management:
   breakeven_trigger_r: 1.0
+  # A real ratcheting stop, trailed atr_multiplier x ATR under the trade's
+  # high-water mark once it reaches activate_at_r. breakeven_trigger_r above only
+  # ever moves the stop to the entry price, once -- so a trade that runs up and
+  # retraces exits at exactly $0.00. Default off: enabling it changes exit
+  # behavior on every trade, so it has to be justified by a backtest, not assumed.
+  trailing_stop:
+    enabled: false
+    atr_multiplier: 1.0
+    activate_at_r: 1.0
   partial_exit:
     enabled: true
     trigger_r: 1.5

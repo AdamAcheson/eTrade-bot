@@ -23,6 +23,7 @@ Safety invariants enforced here (spec section 37):
 from __future__ import annotations
 
 import time
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, time as dtime, timedelta
 from typing import Dict, List, Optional
@@ -80,12 +81,58 @@ def _same_session_day(bar_timestamp: datetime, now: datetime) -> bool:
     return bar_timestamp.date() == now.date()
 
 
+def _session_start_index(bars: List[Bar], now: datetime) -> int:
+    """Index of the first bar belonging to `now`'s session, by binary search.
+
+    state.bars accumulates every bar ever pushed for a ticker and is appended in
+    chronological order, so today's bars are always a contiguous tail. Scanning the
+    whole list to find them -- which the two helpers below used to do, four times per
+    ticker per five-minute step -- is O(history) per call: with three years of cached
+    5-minute bars (~58k per symbol) a 183-day backtest took over half an hour, almost
+    all of it here. Same answer, O(log n)."""
+    if not bars:
+        return 0
+    return bisect_left(bars, _session_start(now), key=lambda b: _as_now_tz(b.timestamp, now))
+
+
+def _session_start(now: datetime) -> datetime:
+    """Midnight at the start of now's calendar day, in now's own timezone. Bars only
+    ever fall inside market hours, so a midnight boundary separates sessions cleanly
+    without needing the exchange open time."""
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _as_now_tz(bar_timestamp: datetime, now: datetime) -> datetime:
+    """Bars carry America/New_York offsets that shift across a DST boundary, and a
+    naive `now` appears in unit tests -- normalize both sides the way
+    _same_session_day does before comparing."""
+    if now.tzinfo is not None and bar_timestamp.tzinfo is not None:
+        return bar_timestamp.astimezone(now.tzinfo)
+    if now.tzinfo is None and bar_timestamp.tzinfo is not None:
+        return bar_timestamp.replace(tzinfo=None)
+    return bar_timestamp
+
+
+def session_bars(bars: List[Bar], now: datetime) -> List[Bar]:
+    """The bars belonging to now's session. Equivalent to filtering on
+    _same_session_day, but without rescanning the accumulated history.
+
+    Both ends are bounded. In the live pipeline nothing later than `now` has been
+    pushed yet, so the upper bound never binds -- but a caller replaying history
+    (a backtest asking about an earlier day, an analysis pass) would otherwise get
+    every subsequent session appended to today's, which is exactly the blend this
+    filter exists to prevent."""
+    start = _session_start_index(bars, now)
+    end = _session_start_index(bars, _session_start(now) + timedelta(days=1))
+    return bars[start:end]
+
+
 def _prior_session_close(bars: List[Bar], now: datetime) -> Optional[float]:
     """Close of the most recent bar NOT in today's session -- the benchmark's last
     settled price, used for trend confirmation that (unlike VWAP) doesn't reset every
     morning. None on a cold start with no prior-day bars yet."""
-    prior_bars = [b for b in bars if not _same_session_day(b.timestamp, now)]
-    return prior_bars[-1].close if prior_bars else None
+    cutoff = _session_start_index(bars, now)
+    return bars[cutoff - 1].close if cutoff > 0 else None
 
 
 def current_window(windows: List[ScheduleWindow], now: datetime) -> Optional[ScheduleWindow]:
@@ -138,7 +185,7 @@ class TradingBot:
         # range/VWAP/EMA/RVOL would silently blend yesterday's session into today's
         # once the bot (or a backtest) runs past a single day, which is exactly how
         # it's meant to run.
-        today_bars = [b for b in state.bars if _same_session_day(b.timestamp, now)]
+        today_bars = session_bars(state.bars, now)
         if not today_bars:
             return None
         strat = self.config.strategy
@@ -187,8 +234,8 @@ class TradingBot:
         # setup detection and the chase rule (which assume "bars" means "today's
         # session, in order") need this slice too, or they silently treat day one's
         # opening range/open as if it were today's.
-        today_stock_bars = [b for b in stock_state.bars if _same_session_day(b.timestamp, now)]
-        today_bench_bars = [b for b in bench_state.bars if _same_session_day(b.timestamp, now)]
+        today_stock_bars = session_bars(stock_state.bars, now)
+        today_bench_bars = session_bars(bench_state.bars, now)
 
         ctx = EvaluationContext(
             ticker=ticker,
@@ -307,6 +354,10 @@ class TradingBot:
                 partial_exit_enabled=strat["partial_exit"]["enabled"],
                 partial_exit_trigger_r=strat["partial_exit"]["trigger_r"],
                 partial_exit_sell_fraction=strat["partial_exit"]["sell_fraction"],
+                trailing_enabled=strat.get("trailing_stop", {}).get("enabled", False),
+                trailing_atr_multiplier=strat.get("trailing_stop", {}).get("atr_multiplier", 1.0),
+                trailing_activate_r=strat.get("trailing_stop", {}).get("activate_at_r", 1.0),
+                atr=snapshot.atr,
             )
             if action.should_exit:
                 self._submit_exit_and_simulate(position.ticker, position.shares, snapshot.bid)
@@ -327,8 +378,8 @@ class TradingBot:
                 self._exit_position(position.ticker, now, ExitReason.SYSTEM_SAFETY_EXIT)
                 continue
 
-            today_stock_bars = [b for b in stock_state.bars if _same_session_day(b.timestamp, now)]
-            today_bench_bars = [b for b in bench_state.bars if _same_session_day(b.timestamp, now)]
+            today_stock_bars = session_bars(stock_state.bars, now)
+            today_bench_bars = session_bars(bench_state.bars, now)
             decision = evaluate_overnight_eligibility(
                 position=position,
                 stock_bars=today_stock_bars,

@@ -117,6 +117,10 @@ class PositionManager:
         partial_exit_enabled: bool,
         partial_exit_trigger_r: float,
         partial_exit_sell_fraction: float,
+        trailing_enabled: bool = False,
+        trailing_atr_multiplier: float = 1.0,
+        trailing_activate_r: float = 1.0,
+        atr: Optional[float] = None,
     ) -> ManagementAction:
         position = self._positions.get(ticker)
         if position is None or not position.is_open():
@@ -130,6 +134,20 @@ class PositionManager:
             position.current_stop = max(position.current_stop, position.entry_price)
             position.breakeven_moved = True
             action.breakeven_moved = True
+
+        # Ratchet the stop up under the high-water mark. Without this the stop moves
+        # to entry once at +1R and then never again, so a trade that runs to +1.8R
+        # and retraces exits at exactly the entry price: in the 183-day backtest, 23
+        # of 96 trades closed for $0.00 that way, having reached a median 1.12%
+        # favorable excursion first. Those are not break-even trades in any useful
+        # sense -- they consumed the position slot (which binds: ~90% of qualifying
+        # signals are rejected because one is already open) and returned nothing.
+        # Off by default; the break-even move above still applies either way.
+        if trailing_enabled and atr and atr > 0 and r >= trailing_activate_r:
+            high_water = position.entry_price + position.maximum_favorable_excursion
+            position.current_stop = max(
+                position.current_stop, high_water - atr * trailing_atr_multiplier
+            )
 
         if (
             partial_exit_enabled

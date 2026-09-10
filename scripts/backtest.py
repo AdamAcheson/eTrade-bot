@@ -63,19 +63,20 @@ def build_volume_baselines(bars_by_day: Dict[str, List[Bar]]) -> Dict[str, Dict[
             cums.append(cum)
         cum_by_day_index[day] = cums
 
+    # Running totals rather than re-summing every prior day for every bar index.
+    # The naive form is O(days^2 x bars) per symbol, which was tolerable at 60 days
+    # of Yahoo history but takes ~35 minutes a run now that some symbols carry 750
+    # days -- long enough to make parameter sweeps impractical. Semantics are
+    # identical: when day `idx` is processed, sums/counts contain exactly the days
+    # strictly before it, so there is still no lookahead.
     baseline_by_day: Dict[str, Dict[int, float]] = {}
-    for idx, day in enumerate(days_sorted):
-        prior_days = days_sorted[:idx]
-        if not prior_days:
-            baseline_by_day[day] = {}
-            continue
-        max_len = max(len(cum_by_day_index[d]) for d in prior_days)
-        baseline = {}
-        for i in range(max_len):
-            values = [cum_by_day_index[d][i] for d in prior_days if i < len(cum_by_day_index[d])]
-            if values:
-                baseline[i] = sum(values) / len(values)
-        baseline_by_day[day] = baseline
+    sums: Dict[int, float] = defaultdict(float)
+    counts: Dict[int, int] = defaultdict(int)
+    for day in days_sorted:
+        baseline_by_day[day] = {i: sums[i] / counts[i] for i in sums if counts[i]}
+        for i, cumulative in enumerate(cum_by_day_index[day]):
+            sums[i] += cumulative
+            counts[i] += 1
     return baseline_by_day
 
 
@@ -115,6 +116,13 @@ def main() -> int:
         help="Limit to the OLDEST N trading days instead of the most recent -- for validating "
              "against a holdout slice that hasn't already been eyeballed while tuning config/strategy.yaml. "
              "Mutually exclusive with --days.",
+    )
+    parser.add_argument(
+        "--end-offset", type=int, default=0,
+        help="Drop the most recent N trading days before applying --days. Combined with --days "
+             "this selects an arbitrary window, which is what a train/test split needs: "
+             "'--days 91 --end-offset 92' is the older half of the last 183 days, and "
+             "'--days 92' the newer half.",
     )
     parser.add_argument(
         "--max-risk-dollars", type=float, default=None,
@@ -158,6 +166,39 @@ def main() -> int:
         help="EXPERIMENT override: replaces behavior.max_concurrent_positions, how many "
              "positions may be open at once (applied in-memory only).",
     )
+    parser.add_argument(
+        "--trailing-atr", type=float, default=None,
+        help="EXPERIMENT override: enable the ratcheting trailing stop at this ATR multiple "
+             "below the high-water mark (applied in-memory only).",
+    )
+    parser.add_argument(
+        "--trailing-activate-r", type=float, default=None,
+        help="EXPERIMENT override: R-multiple at which the trailing stop starts ratcheting "
+             "(applied in-memory only). Requires --trailing-atr.",
+    )
+    parser.add_argument(
+        "--max-position-size-dollars", type=float, default=None,
+        help="EXPERIMENT override: replaces sizing.max_position_size_dollars, the notional cap "
+             "per position (applied in-memory only). This cap -- not the risk budget -- is what "
+             "actually binds on most trades, so it is the real position-size lever.",
+    )
+    parser.add_argument(
+        "--max-position-pct-equity", type=float, default=None,
+        help="EXPERIMENT override: replaces sizing.max_position_size_pct_equity (applied "
+             "in-memory only). Position size is capped by BOTH this and "
+             "--max-position-size-dollars, whichever binds first, so raising only one of "
+             "them leaves the other in force.",
+    )
+    parser.add_argument(
+        "--max-trades-per-day", type=int, default=None,
+        help="EXPERIMENT override: replaces safety.max_trades_per_day (applied in-memory only).",
+    )
+    parser.add_argument(
+        "--tag", type=str, default="",
+        help="Suffix for this run's journal files (logs/backtest_signals<TAG>.jsonl, "
+             "reports/backtest_trades<TAG>.jsonl). Give each variant of a sweep its own tag -- "
+             "runs sharing a journal overwrite each other's results.",
+    )
     args = parser.parse_args()
     if args.days and args.first_days:
         print("--days and --first-days are mutually exclusive", file=sys.stderr)
@@ -174,6 +215,8 @@ def main() -> int:
         args.max_hold_days is not None, args.allow_red_overnight, args.scale_target_with_stop,
         args.preferred_r_min is not None, args.disable_orb,
         args.max_concurrent_positions is not None,
+        args.max_position_size_dollars is not None, args.max_trades_per_day is not None,
+        args.trailing_atr is not None, args.max_position_pct_equity is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -205,6 +248,27 @@ def main() -> int:
             # built below, covers both.
             config.risk["behavior"]["max_concurrent_positions"] = args.max_concurrent_positions
             print(f"  behavior.max_concurrent_positions = {args.max_concurrent_positions}")
+        if args.trailing_atr is not None:
+            ts = config.strategy["trade_management"].setdefault("trailing_stop", {})
+            ts["enabled"] = True
+            ts["atr_multiplier"] = args.trailing_atr
+            if args.trailing_activate_r is not None:
+                ts["activate_at_r"] = args.trailing_activate_r
+            print(f"  trailing_stop = ON, {args.trailing_atr} x ATR, "
+                  f"activate at {ts.get('activate_at_r', 1.0)}R")
+        if args.max_position_size_dollars is not None:
+            # Two copies of this number live in risk.yaml (sizing.* is what
+            # position_sizing.py receives via main.py; safety.* is the RiskManager's
+            # independent guard). Overriding only one leaves the other binding.
+            config.risk["sizing"]["max_position_size_dollars"] = args.max_position_size_dollars
+            config.risk["safety"]["max_position_size_dollars"] = args.max_position_size_dollars
+            print(f"  max_position_size_dollars = {args.max_position_size_dollars}")
+        if args.max_position_pct_equity is not None:
+            config.risk["sizing"]["max_position_size_pct_equity"] = args.max_position_pct_equity
+            print(f"  max_position_size_pct_equity = {args.max_position_pct_equity}")
+        if args.max_trades_per_day is not None:
+            config.risk["safety"]["max_trades_per_day"] = args.max_trades_per_day
+            print(f"  safety.max_trades_per_day = {args.max_trades_per_day}")
         print()
 
     universe = config.auto_tradeable_universe()
@@ -222,6 +286,8 @@ def main() -> int:
 
     days_by_symbol = {s: group_bars_by_day(bars_by_symbol[s]) for s in all_symbols}
     all_days = sorted({day for s in all_symbols for day in days_by_symbol[s].keys()})
+    if args.end_offset:
+        all_days = all_days[:-args.end_offset]
     if args.days:
         all_days = all_days[-args.days:]
     elif args.first_days:
@@ -237,11 +303,13 @@ def main() -> int:
     )
     # Journals append -- start clean each run so results aren't mixed with a
     # previous backtest's output.
-    for path in ("logs/backtest_signals.jsonl", "reports/backtest_trades.jsonl"):
+    signals_path = f"logs/backtest_signals{args.tag}.jsonl"
+    trades_path = f"reports/backtest_trades{args.tag}.jsonl"
+    for path in (signals_path, trades_path):
         if os.path.exists(path):
             os.remove(path)
-    signal_journal = SignalJournal("logs/backtest_signals.jsonl")
-    trade_journal = TradeJournal("reports/backtest_trades.jsonl")
+    signal_journal = SignalJournal(signals_path)
+    trade_journal = TradeJournal(trades_path)
     bot = TradingBot(config, provider, broker, signal_journal, trade_journal)
 
     seen_signals = 0
