@@ -97,16 +97,26 @@ def _fetch_window(symbol: str, window_start: datetime, window_end: datetime, api
         },
         timeout=timeout,
     )
+    # "No data is available" means this window predates the symbol's listing, which
+    # is an answer, not a failure -- and the API returns it as HTTP 400 with the
+    # explanation in the body, not only as a 200 with an error payload. Checking the
+    # status code first cost CRML its whole backfill: it listed during 2024, so the
+    # first 2023 chunk 400'd and aborted the symbol, discarding the two years of data
+    # that do exist. Parse the body before deciding.
+    data = None
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+
+    message = data.get("message", "") if isinstance(data, dict) else ""
+    if "no data is available" in message.lower():
+        return []
+
     if resp.status_code != 200:
         raise TwelveDataError(f"Twelve Data returned HTTP {resp.status_code} for {symbol}: {resp.text[:200]}")
 
-    data = resp.json()
     if isinstance(data, dict) and data.get("status") == "error":
-        message = data.get("message", "")
-        # "No data is available" is expected for a window with no trading days
-        # (e.g. before the symbol existed) -- not a real failure.
-        if "no data is available" in message.lower():
-            return []
         raise TwelveDataError(f"Twelve Data error for {symbol} {window_start.date()}..{window_end.date()}: {message}")
 
     bars: List[Bar] = []

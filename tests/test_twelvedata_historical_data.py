@@ -83,3 +83,63 @@ def test_fetch_twelvedata_bars_chunks_long_ranges(monkeypatch):
 
     # ~90 days at chunk_days=30 -> 3 requests, not one.
     assert len(calls) == 3
+
+
+# --- windows that predate a symbol's listing --------------------------------
+
+class _Resp:
+    def __init__(self, status_code, payload, text=""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("not json")
+        return self._payload
+
+
+NO_DATA = {
+    "code": 400,
+    "message": "No data is available on the specified dates. Try setting different start/end dates.",
+    "status": "error",
+}
+
+
+def test_no_data_available_as_http_400_is_an_empty_window_not_an_error(monkeypatch):
+    """CRML listed during 2024, so its first 2023 chunk came back 400 with this
+    message and aborted the whole symbol -- discarding the two years that do exist.
+    The message was already handled, but only on a 200; the status code was checked
+    first."""
+    from data import twelvedata_historical_data as td
+
+    monkeypatch.setattr(td, "_get_with_retry", lambda *a, **k: _Resp(400, NO_DATA))
+    assert td._fetch_window("CRML", datetime(2023, 9, 6), datetime(2023, 12, 6),
+                            "key", "5min", 5.0) == []
+
+
+def test_no_data_available_as_http_200_still_works(monkeypatch):
+    from data import twelvedata_historical_data as td
+
+    monkeypatch.setattr(td, "_get_with_retry", lambda *a, **k: _Resp(200, dict(NO_DATA, code=200)))
+    assert td._fetch_window("CRML", datetime(2023, 9, 6), datetime(2023, 12, 6),
+                            "key", "5min", 5.0) == []
+
+
+def test_a_real_http_error_still_raises(monkeypatch):
+    from data import twelvedata_historical_data as td
+
+    monkeypatch.setattr(td, "_get_with_retry",
+                        lambda *a, **k: _Resp(401, {"message": "Invalid API key"}, "unauthorized"))
+    with pytest.raises(td.TwelveDataError, match="HTTP 401"):
+        td._fetch_window("AG", datetime(2024, 1, 1), datetime(2024, 2, 1), "key", "5min", 5.0)
+
+
+def test_a_non_json_error_body_still_raises(monkeypatch):
+    """A Cloudflare outage returns HTML, not JSON -- parsing must not mask it."""
+    from data import twelvedata_historical_data as td
+
+    monkeypatch.setattr(td, "_get_with_retry",
+                        lambda *a, **k: _Resp(521, None, "<!DOCTYPE html>"))
+    with pytest.raises(td.TwelveDataError, match="HTTP 521"):
+        td._fetch_window("FCX", datetime(2024, 1, 1), datetime(2024, 2, 1), "key", "5min", 5.0)
