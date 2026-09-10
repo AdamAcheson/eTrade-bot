@@ -39,6 +39,7 @@ from execution.order_manager import OrderManager
 from models.bar import Bar
 from models.signal import Decision
 from models.trade import ExitReason
+from positions.reconciliation import Reconciliation, reconcile, sellable_shares
 from positions.overnight import evaluate_overnight_eligibility, shares_to_hold_overnight
 from positions.position_manager import PositionManager
 from reporting.daily_report import generate_daily_report
@@ -175,6 +176,12 @@ class TradingBot:
         self.order_manager = OrderManager(broker, self.position_manager)
         self.schedule_windows = build_schedule_windows(config.schedule)
 
+        # Refreshed once per cycle (see refresh_reconciliation). Starts empty rather
+        # than by querying the broker, so constructing a bot never does I/O -- but it
+        # is refreshed before the first entry or exit can act on it.
+        self.reconciliation = Reconciliation()
+        self._reported_discrepancies: set = set()
+
     def _snapshot_for(self, ticker: str, now: datetime) -> Optional[IndicatorSnapshot]:
         state = self.data_provider.get_state(ticker)
         if not state.bars or state.quote is None:
@@ -257,6 +264,15 @@ class TradingBot:
         self.signal_journal.log(signal)
 
         if signal.decision != Decision.ENTRY_CANDIDATE:
+            return
+
+        # Never add to a ticker the account already holds shares of that this bot did
+        # not buy. The exit would sell out of the combined pool -- FIFO disposes the
+        # owner's oldest lots first -- so the bot would be liquidating someone else's
+        # position and booking the P&L as its own. Checked here, at the last moment
+        # before an order, as well as once per cycle in run_cycle: a holding can
+        # appear mid-session from a manual trade.
+        if self.reconciliation.is_blocked(ticker):
             return
 
         account = self.broker.get_account()
@@ -359,6 +375,17 @@ class TradingBot:
                 trailing_activate_r=strat.get("trailing_stop", {}).get("activate_at_r", 1.0),
                 atr=snapshot.atr,
             )
+            # Send the 1.5R partial to the broker. PositionManager.manage() decrements
+            # the position and books the partial in the trade record, but nothing here
+            # ever read action.partial_exit_shares -- so the sell was pure bookkeeping
+            # and the shares stayed in the account. Reconciliation caught it: after a
+            # partial the broker held exactly sell_fraction more than the bot thought,
+            # which live would mean profit recorded on shares never actually sold.
+            # Submitted after manage() has already applied it, so a clamp here would
+            # leave the two out of step -- that shows up as short_at_broker on the next
+            # cycle rather than passing silently.
+            if action.partial_exit_shares > 0:
+                self._submit_exit_and_simulate(position.ticker, action.partial_exit_shares, snapshot.bid)
             if action.should_exit:
                 self._submit_exit_and_simulate(position.ticker, position.shares, snapshot.bid)
                 trade = self.position_manager.close_position(
@@ -398,8 +425,13 @@ class TradingBot:
             hold_shares = shares_to_hold_overnight(position.shares, decision.size_multiplier)
             sell_shares = position.shares - hold_shares
             if sell_shares > 0:
-                self._submit_exit_and_simulate(position.ticker, sell_shares, stock_snapshot.bid)
-                position.apply_partial_exit(now, stock_snapshot.last_price, sell_shares, "overnight_size_reduction")
+                # Reduce by what the broker actually took, not what was asked for --
+                # a clamped sell that still decremented the bot's own count would
+                # leave it believing it holds fewer shares than it does, which is the
+                # drift this reconciliation exists to prevent.
+                sold = self._submit_exit_and_simulate(position.ticker, sell_shares, stock_snapshot.bid)
+                if sold > 0:
+                    position.apply_partial_exit(now, stock_snapshot.last_price, sold, "overnight_size_reduction")
             position.overnight = True
             position.overnight_multiplier_applied = decision.size_multiplier
 
@@ -413,23 +445,76 @@ class TradingBot:
         self.trade_journal.record(trade)
         self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, ticker)
 
-    def _submit_exit_and_simulate(self, ticker: str, shares: int, limit_price: float) -> None:
+    def _submit_exit_and_simulate(self, ticker: str, shares: int, limit_price: float) -> int:
         """Actually submit the SELL to the broker (spec section 32/17: exits must
         reach the broker, not just PositionManager's bookkeeping). PaperBrokerAdapter
         only fills resting orders when it next sees a quote (`process_quote`), so for
         the simulated broker we feed it the current quote immediately -- an exit is
         meant to happen now, not wait for the next unrelated poll to fill it."""
+        # Clamp to what the broker actually holds. If its count is lower than the
+        # bot's -- a fill that never happened, a manual sale -- selling the bot's
+        # number would not flatten the position, it would open a short, and a short's
+        # loss is unbounded. A smaller sell (or none) is always the safer error.
+        shares = sellable_shares(ticker, shares, self.broker.get_positions())
+        if shares <= 0:
+            self._log_reconciliation_block(ticker)
+            return 0
         self.order_manager.submit_exit_order(ticker, shares, limit_price)
         if isinstance(self.broker, PaperBrokerAdapter):
             state = self.data_provider.get_state(ticker)
             if state.quote is not None:
                 self.broker.process_quote(ticker, state.quote.bid, state.quote.ask)
+        return shares
+
+    def refresh_reconciliation(self) -> Reconciliation:
+        """Ask the broker what it actually holds and compare with the bot's own view.
+
+        A broker that cannot be reached is treated as "everything is blocked", not as
+        "nothing is held": entering on an unverifiable account is exactly the case
+        this exists to prevent. Exits still work in that state, because
+        sellable_shares clamps them to a fetched count and a failed fetch clamps them
+        to zero -- no order rather than a wrong one.
+        """
+        try:
+            broker_positions = self.broker.get_positions()
+        except Exception as e:  # noqa: BLE001 -- any broker failure is a hard stop here
+            self.reconciliation = Reconciliation(
+                externally_held={t: 0 for t in self.config.auto_tradeable_universe()}
+            )
+            self._log_once(f"reconciliation: broker.get_positions() failed ({e}) -- "
+                           f"blocking all new entries this cycle")
+            return self.reconciliation
+
+        bot_shares = {p.ticker: p.shares for p in self.position_manager.open_positions()}
+        self.reconciliation = reconcile(broker_positions, bot_shares)
+        for line in self.reconciliation.describe():
+            self._log_once(f"reconciliation: {line}")
+        return self.reconciliation
+
+    def _log_once(self, message: str) -> None:
+        """Report a reconciliation problem the first time it is seen, then stay quiet
+        while it persists -- a five-minute loop would otherwise print the same warning
+        every cycle all day and bury everything else."""
+        if message not in self._reported_discrepancies:
+            self._reported_discrepancies.add(message)
+            print(message)
+
+    def _log_reconciliation_block(self, ticker: str) -> None:
+        self._log_once(
+            f"reconciliation: exit for {ticker} not submitted -- the broker reports no "
+            f"shares to sell. Position closed in the journal; verify the account."
+        )
 
     def run_cycle(self, now: datetime) -> None:
         """One pass over the approved universe -- see docs/ARCHITECTURE.md section 10
         for the full loop this is nested inside."""
         if self.config.kill_switch_active():
             return
+
+        # Refresh the broker's view of what is actually held BEFORE anything acts on
+        # it -- both the entry gate and the exit clamp read self.reconciliation, and
+        # a stale one is worse than none.
+        self.refresh_reconciliation()
 
         if is_near_overnight_review(self.config.schedule, now):
             self.run_overnight_review(now)
