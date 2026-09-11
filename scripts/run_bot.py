@@ -8,15 +8,19 @@ sandbox regardless of which broker mode is active -- see that file's comments).
 With mode: paper (the default), orders/fills/P&L stay in the local simulator even
 though quotes are real; with mode: sandbox, orders also go to E*TRADE for real.
 
-Known limitation: average-volume baselines (needed for the relative-volume
-eligibility check) are not seeded here -- there's no historical daily-volume feed
-wired up yet, so RVOL will read as unavailable and most signals will reject on
-REJECTED_LOW_VOLUME. This run validates that the full pipeline executes
-continuously against a real broker connection; it does not fake data to force
-entries.
+Relative-volume baselines are seeded from the local historical cache
+(data_cache/historical, populated by scripts/fetch_historical_data_twelvedata.py).
+Without them every signal rejects on REJECTED_LOW_VOLUME -- min_relative_volume is
+1.10 and RVOL reads as unavailable -- so the loop would run all day and never take a
+trade. The baseline for each five-minute slot is that slot's average cumulative
+volume over the last --baseline-days sessions, refreshed as the session advances,
+matching how scripts/backtest.py computes it.
+
+If a symbol has no cached history the loop still runs, but that symbol will not
+produce entries; the startup summary says which.
 
 Usage:
-    python3 scripts/run_bot.py [poll_interval_seconds]
+    python3 scripts/run_bot.py [poll_interval_seconds] [--baseline-days N]
 """
 
 import os
@@ -29,12 +33,60 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from config_loader import load_config, ConfigError  # noqa: E402
 from data.etrade_market_data import ETradeMarketDataProvider  # noqa: E402
+from data.historical_data import HistoricalDataError, get_bars, group_bars_by_day  # noqa: E402
 from main import build_default_bot  # noqa: E402
 from models.signal import Decision  # noqa: E402
 
 
+
+BAR_MINUTES = 5
+
+
+def volume_baselines_from_cache(symbol, lookback_days):
+    """Average cumulative volume at each five-minute slot of the session, over the
+    most recent `lookback_days` cached sessions.
+
+    RVOL compares today's volume-so-far against a normal day's volume-by-this-time,
+    so the baseline has to be per slot, not a single daily average -- comparing
+    10:05's cumulative volume against a full day's would reject every morning
+    signal. Recent sessions only: a three-year average would understate a name whose
+    volume has since doubled.
+    """
+    try:
+        by_day = group_bars_by_day(get_bars(symbol))
+    except HistoricalDataError:
+        return {}
+    recent = [by_day[d] for d in sorted(by_day)[-lookback_days:]]
+    if not recent:
+        return {}
+
+    sums, counts = {}, {}
+    for day_bars in recent:
+        cumulative = 0.0
+        for i, bar in enumerate(day_bars):
+            cumulative += bar.volume
+            sums[i] = sums.get(i, 0.0) + cumulative
+            counts[i] = counts.get(i, 0) + 1
+    return {i: sums[i] / counts[i] for i in sums}
+
+
+def session_bar_index(now, market_open_hhmm):
+    """Which five-minute slot of the session `now` falls in. Negative before the
+    open, which callers treat as "no baseline yet" rather than clamping to slot 0 --
+    a pre-open quote is not the first bar of the day."""
+    hh, mm = (int(x) for x in market_open_hhmm.split(":"))
+    open_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    return int((now - open_dt).total_seconds() // (BAR_MINUTES * 60))
+
+
 def main() -> int:
-    poll_interval = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+    args = [a for a in sys.argv[1:]]
+    baseline_days = 20
+    if "--baseline-days" in args:
+        i = args.index("--baseline-days")
+        baseline_days = int(args[i + 1])
+        del args[i:i + 2]
+    poll_interval = int(args[0]) if args else 30
 
     try:
         config = load_config()
@@ -59,6 +111,10 @@ def main() -> int:
     benchmarks = sorted({config.benchmark_of(t) for t in universe})
     all_symbols = sorted(set(universe) | set(benchmarks))
 
+    baselines = {sym: volume_baselines_from_cache(sym, baseline_days) for sym in all_symbols}
+    missing = sorted(s for s, b in baselines.items() if not b)
+    market_open = config.schedule.get("market_open", "09:30")
+
     print("=" * 70)
     print("STARTING LIVE BOT LOOP")
     print("=" * 70)
@@ -66,6 +122,10 @@ def main() -> int:
     print(f"  Market data:       {type(bot.data_provider).__name__} (real E*TRADE sandbox quotes)")
     print(f"  Universe ({len(universe)}):      {', '.join(universe)}")
     print(f"  Benchmarks ({len(benchmarks)}):    {', '.join(benchmarks)}")
+    print(f"  RVOL baselines:    {len(all_symbols) - len(missing)}/{len(all_symbols)} symbols "
+          f"from the last {baseline_days} cached sessions")
+    if missing:
+        print(f"  NO BASELINE:       {', '.join(missing)} -- these cannot produce entries")
     print(f"  Poll interval:     {poll_interval}s")
     print(f"  Timezone:          {tz.key}")
     print("  Press Ctrl+C to stop.")
@@ -91,11 +151,19 @@ def main() -> int:
                 current_day = now.date()
                 print(f"[{now:%H:%M:%S}] new trading day -- daily risk counters reset")
 
+            slot = session_bar_index(now, market_open)
             for symbol in all_symbols:
                 try:
                     bot.data_provider.poll(symbol, now)
                 except Exception as e:
                     print(f"[{now:%H:%M:%S}] quote poll failed for {symbol}: {e}")
+                # Refresh the volume baseline for the slot the session is currently
+                # in. Left unset it stays 0.0, RVOL reads as unavailable, and every
+                # signal rejects on REJECTED_LOW_VOLUME.
+                if slot >= 0:
+                    bot.data_provider.set_average_volume_baseline(
+                        symbol, baselines.get(symbol, {}).get(slot, 0.0)
+                    )
 
             bot.run_cycle(now)
 
