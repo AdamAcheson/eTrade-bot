@@ -184,3 +184,23 @@ def test_4xx_is_returned_not_retried(monkeypatch):
 
     assert td._get_with_retry({"symbol": "FCX"}, timeout=5).status_code == 429
     assert calls["n"] == 1
+
+
+def test_refetch_window_is_reachable_by_missing_ranges():
+    """The trap --refetch-recent exists for: once today's (thin-volume) bars are
+    cached, missing_ranges only ever fills gaps at the ENDS of the cached range, so
+    a later run never revisits them and the bad volume sticks. Dropping the tail
+    first puts that window back inside a fetchable gap."""
+    end = datetime(2026, 3, 20, 16, 0, tzinfo=ET)
+    start = datetime(2026, 3, 1, tzinfo=ET)
+    cached = [bar(10), bar(19), bar(20)]
+
+    # Without dropping: today (the 20th) is already covered, nothing re-fetched.
+    assert missing_ranges(cached, start, cached[-1].timestamp) == [(start, cached[0].timestamp)]
+
+    # After dropping the last 3 days, the tail falls inside a gap again.
+    cutoff = end - timedelta(days=3)
+    kept = [b for b in cached if b.timestamp < cutoff]
+    gaps = missing_ranges(kept, start, end)
+    assert kept == [bar(10)]
+    assert gaps[-1] == (kept[-1].timestamp, end)

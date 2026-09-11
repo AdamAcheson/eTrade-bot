@@ -65,6 +65,15 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true", help="Bypass the cache and re-fetch everything")
     parser.add_argument("--days", type=int, default=180, help="Calendar days of history to pull (default: 180 -- comfortably fits one day's free-tier credit budget for the full universe)")
     parser.add_argument(
+        "--refetch-recent", type=int, default=0, metavar="N",
+        help="Discard the last N days of cached bars before merging, forcing them to be "
+             "pulled again. The current session is served from a partial real-time feed "
+             "(~6%% of consolidated volume) and reads correctly only the next day -- but the "
+             "incremental merge only fills gaps at the ENDS of the cached range, so once "
+             "today is cached at all, tomorrow's run would never revisit it and the thin "
+             "volume would stick permanently. Use --refetch-recent 3 in a daily top-up.",
+    )
+    parser.add_argument(
         "--symbols", type=str, default=None,
         help="Comma-separated symbols to fetch instead of the whole universe+benchmarks. "
              "A deep backfill costs far more than one day of the free tier's credits, so "
@@ -108,6 +117,13 @@ def main() -> int:
         existing = []
         if os.path.exists(path) and not args.refresh:
             existing = load_bars_csv(path)
+        if args.refetch_recent and existing:
+            cutoff = end - timedelta(days=args.refetch_recent)
+            kept = [b for b in existing if b.timestamp < cutoff]
+            if len(kept) != len(existing):
+                print(f"  {symbol}: dropping {len(existing) - len(kept)} bar(s) "
+                      f"from the last {args.refetch_recent}d to re-fetch them")
+            existing = kept
         gaps = missing_ranges(existing, start, end)
         if not gaps:
             print(f"  {symbol}: already covers {args.days}d, skipping")
