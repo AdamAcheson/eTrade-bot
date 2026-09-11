@@ -7,10 +7,15 @@ totalled 522,955 shares against an 8,590,724 ten-session median -- 6% -- while
 prices (O 20.43 H 20.73 L 19.43 C 19.57 against a 20.16 prior close) described a
 perfectly ordinary -2.9% day.
 
-This does NOT resolve by waiting out the session. AG's opening bar read 13,784
-shares at 12:00 ET and the identical 13,784 at 17:00, an hour after the close.
-It resolves the NEXT day: 2026-09-10 fetched on 2026-09-11 read a normal
-8,552,365. So a session becomes backtestable the morning after, not the evening of.
+Consolidation lands roughly 80 minutes after the close, and not all at once. On
+2026-09-11 AG read 522,955 (0.06x) at 17:00 and 8,903,042 (1.04x) at 17:18; a
+re-fetch at 17:20 cleared 27 of 29 symbols, CRML needed one more pass, and PICK
+-- the thinnest name in the universe -- was still short of a full session after
+that. So: re-fetch from about 17:30 ET, expect to repeat it once or twice for the
+illiquid names, and let this check tell you when it is done rather than guessing.
+
+Re-fetching an already-cached session needs --refetch-recent, since the
+incremental merge only fills gaps at the ENDS of the cached range.
 
 Relative volume is a hard entry gate (min_relative_volume), so a session fetched
 too early produces zero entries that look like a quiet market rather than a data
@@ -104,9 +109,11 @@ def main() -> int:
     print(f"\n{counts['ok']} ok, {counts['warn']} suspect, {counts['missing']} missing")
     if counts["warn"] or counts["missing"]:
         print("\nDo NOT trust a backtest of this session yet. If this is today's session,")
-        print("waiting out the close does not help -- the current day is served from a")
-        print("partial real-time feed. Re-fetch tomorrow and check again; a completed")
-        print("prior session reads full consolidated volume.")
+        print("consolidated volume lands ~80 minutes after the close and arrives unevenly")
+        print("across symbols. Re-run:")
+        print("  python3 scripts/fetch_historical_data_twelvedata.py --days 5 --refetch-recent 2")
+        print("then check again. --refetch-recent is required: without it the merge skips")
+        print("a session that is already cached, however thin.")
         return 1
     print("\nSession looks complete. Safe to run: python3 scripts/backtest.py --days 1")
     return 0
