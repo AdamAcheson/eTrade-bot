@@ -95,3 +95,47 @@ sign test is an independent, distribution-free confirmation.
 * Parameters were selected over 13 swept configurations on the tuning period.
   The holdout is genuinely out of sample, but the config being tested was not
   chosen blind.
+
+## Silver direction predicts how much the bot trades
+
+Measured across all 570 holdout sessions, bucketed by SLV's OPEN-TO-CLOSE move
+(the intraday move, not close-to-close -- this is an intraday strategy):
+
+| SLV open->close | sessions | % taking zero trades | avg trades | avg P&L |
+|---|---|---|---|---|
+| < -2% | 21 | **71%** | 0.81 | $34 |
+| -2% to -0.5% | 148 | 39% | 1.28 | -$12 |
+| -0.5% to +0.5% | 231 | 24% | 1.90 | $77 |
+| +0.5% to +2% | 142 | 20% | 2.51 | $144 |
+| > +2% | 28 | **4%** | 2.86 | $273 |
+
+Monotonic in all three columns. Correlation of SLV's intraday move with trades
+taken is **+0.272**; with daily P&L, **+0.144**.
+
+Read that gap carefully. Silver direction predicts how ACTIVE the strategy is far
+better than whether its trades win. This does not contradict the earlier finding
+that silver failed as a predictor of trade OUTCOME -- both are true, and they are
+different questions. The strategy is structurally long intraday sector momentum,
+so its activity scales with sector direction, while its per-trade edge does not.
+
+Note also that average P&L on the worst silver days is POSITIVE (+$34). The bot
+does not lose money when silver falls; it declines to trade. That is the
+benchmark-confirmation gate doing its job.
+
+### The mechanism, from 2026-09-11
+
+Silver fell 5.32% on 2026-09-10. On the 11th the miners gapped up -- SIL opened
+98.31 against a 96.15 prior close, +2.2% -- and then sold off all session, closing
+96.33 (-2.01% open-to-close, -3.25% peak-to-trough).
+
+That gap-up-then-fade shape is the worst case for a VWAP gate: VWAP anchors near
+the high open, price falls under it early and never recovers. SIL and GDX each
+closed above their own VWAP on just **7 of 78 bars**, dropping below at 10:05.
+benchmark_confirmation.require_price_above_vwap therefore failed nearly all day,
+producing 1214 of 1553 rejections and zero trades.
+
+Judging that session by close-to-close numbers (SLV +1.06%, SIL +0.19%) makes it
+look flat and the zero-trade outcome unexplained. Those closes are measured
+against 09-10's post-crash low. The intraday move is what the strategy actually
+experiences, and it was firmly negative.
+
