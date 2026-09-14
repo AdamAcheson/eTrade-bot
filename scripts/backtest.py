@@ -162,6 +162,23 @@ def main() -> int:
              "VWAP_RECLAIM instead (applied in-memory only).",
     )
     parser.add_argument(
+        "--disable-pdt", action="store_true",
+        help="EXPERIMENT override: turn OFF the FINRA pattern-day-trader gate "
+             "(safety.pattern_day_trader.enabled), so day trades are unlimited -- which is "
+             "how an account at or above the $25,000 PDT minimum actually trades. Use it to "
+             "measure what the gate costs (applied in-memory only).",
+    )
+    parser.add_argument(
+        "--pdt-max-day-trades", type=int, default=None,
+        help="EXPERIMENT override: replaces safety.pattern_day_trader.max_day_trades, the "
+             "number of day trades allowed per rolling window (applied in-memory only).",
+    )
+    parser.add_argument(
+        "--starting-equity", type=float, default=None,
+        help="EXPERIMENT override: replaces broker.yaml paper.starting_equity, the simulated "
+             "account size (applied in-memory only).",
+    )
+    parser.add_argument(
         "--max-concurrent-positions", type=int, default=None,
         help="EXPERIMENT override: replaces behavior.max_concurrent_positions, how many "
              "positions may be open at once (applied in-memory only).",
@@ -232,6 +249,8 @@ def main() -> int:
         args.max_position_size_dollars is not None, args.max_trades_per_day is not None,
         args.trailing_atr is not None, args.max_position_pct_equity is not None,
         args.no_trailing, args.only_tickers is not None,
+        args.disable_pdt, args.pdt_max_day_trades is not None,
+        args.starting_equity is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -257,6 +276,15 @@ def main() -> int:
         if args.disable_orb:
             config.strategy["setups"]["enable_orb_pullback"] = False
             print("  setups.enable_orb_pullback = False")
+        if args.disable_pdt:
+            config.risk["safety"].setdefault("pattern_day_trader", {})["enabled"] = False
+            print("  safety.pattern_day_trader.enabled = False")
+        if args.pdt_max_day_trades is not None:
+            config.risk["safety"].setdefault("pattern_day_trader", {})["max_day_trades"] = args.pdt_max_day_trades
+            print(f"  safety.pattern_day_trader.max_day_trades = {args.pdt_max_day_trades}")
+        if args.starting_equity is not None:
+            config.broker["paper"]["starting_equity"] = args.starting_equity
+            print(f"  paper.starting_equity = {args.starting_equity}")
         if args.max_concurrent_positions is not None:
             # Read in two places (PositionManager construction and RiskManager's
             # gate), both off config.risk -- overriding here, before TradingBot is

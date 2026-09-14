@@ -288,6 +288,13 @@ class TradingBot:
             broker_connected=self.broker.is_connected(),
             kill_switch_active=self.config.kill_switch_active(),
             now=now,
+            # Every position opened today closes today unless it survives the 3:50pm
+            # overnight review, so each one already has a day trade reserved against
+            # the PDT budget. See RiskManager's note on this argument.
+            open_positions_opened_today=sum(
+                1 for p in self.position_manager.open_positions()
+                if p.entry_time.date() == now.date()
+            ),
         )
         if not risk_check.allowed:
             return
@@ -360,7 +367,7 @@ class TradingBot:
                     position.ticker, now, snapshot.last_price, ExitReason.MAX_HOLD_EXCEEDED
                 )
                 self.trade_journal.record(trade)
-                self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker)
+                self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker, entry_time=trade.entry_time)
                 continue
             action = self.position_manager.manage(
                 position.ticker,
@@ -392,7 +399,7 @@ class TradingBot:
                     position.ticker, now, action.exit_price, action.exit_reason
                 )
                 self.trade_journal.record(trade)
-                self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker)
+                self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker, entry_time=trade.entry_time)
 
     def run_overnight_review(self, now: datetime) -> None:
         for position in list(self.position_manager.open_positions()):
@@ -443,7 +450,7 @@ class TradingBot:
             self._submit_exit_and_simulate(ticker, position.shares, snapshot.bid)
         trade = self.position_manager.close_position(ticker, now, exit_price, reason)
         self.trade_journal.record(trade)
-        self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, ticker)
+        self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, ticker, entry_time=trade.entry_time)
 
     def _submit_exit_and_simulate(self, ticker: str, shares: int, limit_price: float) -> int:
         """Actually submit the SELL to the broker (spec section 32/17: exits must

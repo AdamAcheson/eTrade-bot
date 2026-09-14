@@ -33,6 +33,23 @@ safety:
   data_staleness_limit_seconds: 30
   broker_connection_check_interval_seconds: 15
   ticker_cooldown_after_stop_minutes: 45
+  # FINRA pattern-day-trader rule. A margin account under $25,000 equity is
+  # restricted once it makes 4 day trades (open and close the same security in the
+  # same session) within 5 rolling business days. This strategy closes ~99% of its
+  # round trips same-session, so without this gate a small account trips the rule
+  # almost immediately -- measured on the 120-day backtest, 86% of rolling 5-day
+  # windows exceeded 3 day trades.
+  #
+  # enabled: false is correct for an account at or above the $25,000 minimum -- the
+  # rule simply does not apply there, and leaving it on needlessly forfeits trades.
+  # Enforced at ENTRY (see risk_manager.can_open_new_position), because by exit time
+  # the only way to avoid a 4th day trade is to hold stock overnight that the thesis
+  # says to sell.
+  pattern_day_trader:
+    enabled: true
+    max_day_trades: 3
+    rolling_business_days: 5
+
   # Hard force-exit at current price after this many calendar days, regardless of
   # the daily overnight-eligibility review. null (default) disables it -- positions
   # are then only ever closed by stop/target/trailing-stop/overnight-review, with
