@@ -190,3 +190,37 @@ is a deliberate trade of higher drawdown and a flat-to-slightly-worse typical da
 for roughly twice as many large winners. It increases the strategy's dependence
 on the right tail, which is already its main fragility.
 
+## Runner clustering is contemporaneous, not predictive
+
+Runners do cluster: 24 holdout days carried 2+ runners against 13.6 expected under
+Poisson arrival, permutation p = 0.0006. That looked like exploitable regime
+structure, so it was tested directly -- can a cluster day be recognised in advance?
+
+Features measured at 10:00, with the target restricted to trades ENTERED at or
+after 10:00 so nothing peeks:
+
+| feature | vs runners/day | vs day P&L |
+|---|---|---|
+| sector breadth at 10:00 (share of names above own VWAP) | **-0.070** | +0.007 |
+| SIL opening gap | +0.053 | +0.080 |
+| prior day's runner count | **-0.063** | -0.013 |
+
+All null, and two are the wrong sign. Days following a 2+ runner day produce
+FEWER runner days (12%) than days following a quiet one (19%). Breadth above 75%
+gives 15% runner-days against 22% when breadth is under 25%.
+
+So the clustering does not persist across days. It is contemporaneous: when one
+miner runs, others run THE SAME DAY. That is the +0.267 mean pairwise correlation
+and the effective breadth of 3.2 showing up in a different projection -- not a
+regime that can be traded, because a cluster day is only identifiable once its
+runners have already run.
+
+This corrects the reading recorded when the clustering was first found. Temporal
+structure was the obvious inference and it is wrong; the structure is
+cross-sectional.
+
+Predictors tested and failed to date: setup score, RVOL, planned R, ATR%, spread,
+benchmark strength, setup type, silver (three definitions), Dow, stop width, hold
+time, concurrency, hour-of-day, entry price, day-of-week, sector breadth, runner
+persistence. Nineteen.
+
