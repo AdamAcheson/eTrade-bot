@@ -139,3 +139,54 @@ look flat and the zero-trade outcome unexplained. Those closes are measured
 against 09-10's post-crash low. The intraday move is what the strategy actually
 experiences, and it was firmly negative.
 
+## The do-not-chase rule costs roughly 60% of P&L
+
+`chase_rule` refuses entries into names that have already moved. Since 97% of
+profit comes from the 6.7% of trades exceeding +3R, it was worth asking whether
+it declines the trades that pay. It does.
+
+| period | variant | trades | net | max DD | ret/DD | >3R |
+|---|---|---|---|---|---|---|
+| holdout (490d) | chase ON | 1091 | $44,019 | 3.9% | 11.2 | 73 |
+| holdout (490d) | chase OFF | 1899 | **$72,101** | 5.1% | **14.2** | **127** |
+| tuning (152d) | chase ON | 313 | $16,770 | 3.2% | 5.3 | 24 |
+| tuning (152d) | chase OFF | 538 | **$26,132** | 4.5% | **5.8** | **45** |
+
+Pooled over 642 trading days (~3 years): **+$37,445, 95% CI [+$14,555, +$60,846]**,
+still +$33,812 after trimming the best and worst 1% of days.
+
+### It is one sub-rule, not three
+
+Of 85,309 chase rejections across 797,956 signals:
+
+| sub-rule | rejections | share |
+|---|---|---|
+| `extended_above_vwap` (>1 ATR above VWAP) | 85,284 | **100.0%** |
+| `consecutive_large_green_candles` | 24 | 0.0% |
+| `extended_above_open_no_consolidation` | 1 | 0.0% |
+
+The other two are effectively dead code. "1 ATR above VWAP" is close to the
+definition of a strong intraday mover, so the rule as configured rejects strength
+rather than over-extension.
+
+Relaxing sub-rule 2 alone is monotonic in P&L on the holdout: 1.0 ATR $44,019 ->
+2.0 ATR $60,381 -> 3.0 ATR $66,434 -> off $72,101.
+
+### The mechanism replicates; the daily experience does not improve
+
+Runner count (>3R) rises by almost the same multiple in both periods, which is
+the strongest part of the evidence:
+
+  holdout  73 -> 127  (1.74x)
+  tuning   24 ->  45  (1.88x)
+
+But the gain is **entirely** in the tail. Pooled sign test: better on 314 days,
+worse on 322, **p = 0.78**. Median daily difference is **-$0.10**; the mean is
++$58.33. Drawdown rises in both periods (3.9% -> 5.1%, 3.2% -> 4.5%).
+
+Contrast the trailing stop, which improved 353 days against 182 with sign test
+p = 1.2e-13 and a positive median. That was a broad improvement. This is not: it
+is a deliberate trade of higher drawdown and a flat-to-slightly-worse typical day
+for roughly twice as many large winners. It increases the strategy's dependence
+on the right tail, which is already its main fragility.
+
