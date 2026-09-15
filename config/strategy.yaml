@@ -26,7 +26,25 @@ eligibility:
 chase_rule:
   max_consecutive_large_green_candles: 3
   large_candle_body_atr_multiple: 1.0
-  max_atr_above_vwap: 1.0
+  # 3.0, not the original 1.0. This one threshold WAS the chase rule in practice:
+  # of 85,309 rejections across 797,956 signals, 85,284 (100.0%) were this check,
+  # while the two below fired 25 times between them. At 1.0 ATR it rejected
+  # strength rather than over-extension -- 1 ATR above VWAP is close to the
+  # definition of a strong intraday mover, and 97% of profit comes from the 6.7%
+  # of trades exceeding +3R.
+  #
+  # Measured over 642 trading days across both periods, relaxing it is worth
+  # +$37,445 (95% CI [+$14,555, +$60,846]) and roughly doubles the number of >3R
+  # trades (73 -> 127 holdout, 24 -> 45 tuning). 3.0 rather than removing the
+  # check keeps a ceiling and captures ~80% of the gain ($66,434 of $72,101 on
+  # the holdout).
+  #
+  # Know what this buys: the gain is ENTIRELY in the tail. Pooled sign test is
+  # better on 314 days and worse on 322 (p = 0.78), the median day is -$0.10, and
+  # drawdown rises (3.9% -> 5.1% holdout, 3.2% -> 4.5% tuning). Unlike the
+  # trailing stop, this does not improve the typical day -- it trades drawdown for
+  # about twice as many large winners.
+  max_atr_above_vwap: 3.0
   max_pct_above_open_without_consolidation: 5.0
 
 benchmark_confirmation:

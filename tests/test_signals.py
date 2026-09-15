@@ -50,6 +50,18 @@ def orb_strategy(config):
     return strategy
 
 
+def strict_chase_strategy(config):
+    """config/strategy.yaml ships chase_rule.max_atr_above_vwap: 3.0, relaxed from
+    the original 1.0 because that threshold WAS the chase rule in practice (100.0%
+    of its rejections) and rejected strength rather than over-extension -- see that
+    file's comment and docs/BACKTEST_RESULTS.md. The spec section 9 scenario below
+    exercises the over-extension logic itself, so it pins the threshold explicitly
+    rather than depending on whatever the deployed default is tuned to."""
+    strategy = copy.deepcopy(config.strategy)
+    strategy["chase_rule"]["max_atr_above_vwap"] = 1.0
+    return strategy
+
+
 # --- unit tests: benchmark confirmation -------------------------------------
 
 def test_benchmark_confirmation_passes_when_bullish():
@@ -259,9 +271,20 @@ def test_scenario_2_stock_bullish_but_benchmark_below_vwap_rejects(config):
 
 def test_scenario_3_stock_overextended_rejects(config):
     ctx = make_ctx(config, snapshot=base_stock_snapshot(vwap=10.00, atr=0.15))
-    signal = evaluate_ticker(ctx, config.strategy, config.risk)
+    signal = evaluate_ticker(ctx, strict_chase_strategy(config), config.risk)
     assert signal.decision == Decision.REJECTED
     assert signal.rejection_reason == RejectionReason.REJECTED_OVEREXTENDED
+    assert signal.extra.get("chase_rule") == "extended_above_vwap"
+
+
+def test_shipped_chase_threshold_admits_a_moderately_extended_stock(config):
+    """The counterpart to the scenario above, pinning the actual shipped setting:
+    the same snapshot that is over-extended at 1.0 ATR is NOT rejected at the
+    shipped 3.0, which is the whole point of the change. If someone reverts the
+    threshold, this fails rather than the change silently disappearing."""
+    ctx = make_ctx(config, snapshot=base_stock_snapshot(vwap=10.00, atr=0.15))
+    signal = evaluate_ticker(ctx, config.strategy, config.risk)
+    assert signal.rejection_reason != RejectionReason.REJECTED_OVEREXTENDED
 
 
 def test_scenario_4_spread_exceeds_threshold_rejects(config):
