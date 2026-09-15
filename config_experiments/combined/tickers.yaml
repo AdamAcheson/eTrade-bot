@@ -1,0 +1,456 @@
+# EXPERIMENT UNIVERSE -- the shipped mining universe PLUS the cross-sector names.
+#
+# Generated: do not hand-edit. Regenerate by concatenating config/tickers.yaml
+# with config_experiments/xsector/tickers.yaml (see docs/BACKTEST_RESULTS.md,
+# "Uncorrelated universe test").
+#
+# This is the actionable form of the breadth question. Running the strategy on
+# cross-sector names ALONE only asks whether it travels. Running both books
+# together asks whether adding low-correlation names to the existing one raises
+# the information ratio -- which is the change a desk would actually make.
+#
+# Note what caps the answer: behavior.max_concurrent_positions is 5. Thirty-six
+# names cannot place more simultaneous bets than five slots allow, so a combined
+# run measures breadth AND slot contention at once.
+
+tickers:
+  # --- Silver miners (benchmark: SIL, except VZLA -> SILJ) ---
+  AG:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  SVM:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.25
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  HL:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  EXK:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  VZLA:
+    benchmark: SILJ
+    sector: silver_miner
+    max_spread_pct: 0.30
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  SIL:
+    benchmark: SLV
+    sector: silver_miner_etf
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  # --- Gold / gold-silver miners (benchmark: GDX) ---
+  CDE:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  EQX:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  SSRM:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  DRD:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.35
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  FSM:
+    benchmark: GDX
+    sector: gold_silver_miner
+    max_spread_pct: 0.25
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+
+  # --- Copper (benchmark: COPX) ---
+  FCX:
+    benchmark: COPX
+    sector: copper
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  SCCO:
+    benchmark: COPX
+    sector: copper
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  # --- Diversified mining (benchmark: PICK) ---
+  RIO:
+    benchmark: PICK
+    sector: diversified_mining
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 2.5]
+    volatility_category: low
+
+  BHP:
+    benchmark: PICK
+    sector: diversified_mining
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 2.5]
+    volatility_category: low
+
+  # Excluded on liquidity, not on P&L. NEXA quotes a median 37 five-minute bars a
+  # session against 78 for a liquid name (404 of 756 cached sessions under 40
+  # bars) -- it simply does not trade every five minutes. scripts/backtest.py
+  # synthesizes bid/ask as a fraction of max_spread_pct above, so on a name that
+  # thin the modelled fills are optimistic and real ones would be worse than
+  # anything measured here.
+  #
+  # The measured case is supporting, not decisive. Removing NEXA is worth
+  # +$3,027.91 over the 2023-09..2025-12 holdout and -$0.38 over 2026-06..09, and
+  # the holdout gain is NOT significant on its own (95% CI [-$427, +$7,901]).
+  # Note it gains far more than NEXA's own -$1,057.19: with 5 concurrent
+  # positions, freeing its slots matters more than its own P&L. Win rate and
+  # return-per-drawdown are slightly better without it in both periods.
+  NEXA:
+    benchmark: PICK
+    sector: diversified_mining
+    max_spread_pct: 0.35
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+    strategy: excluded
+
+  # --- Uranium (benchmark: URA) ---
+  UEC:
+    benchmark: URA
+    sector: uranium
+    max_spread_pct: 0.25
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  # --- Rare earths / critical minerals (benchmark: REMX) ---
+  MP:
+    benchmark: REMX
+    sector: rare_earth
+    max_spread_pct: 0.20
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  USAR:
+    benchmark: REMX
+    sector: rare_earth
+    max_spread_pct: 0.20
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  CRML:
+    benchmark: REMX
+    sector: rare_earth
+    max_spread_pct: 0.30
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high
+
+  # --- Specialty minerals (benchmark: XME) ---
+  CMP:
+    benchmark: XME
+    sector: specialty_minerals
+    max_spread_pct: 0.35
+    overnight_category: conditional
+    overnight_position_multiplier: 0.50
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  # --- Exploration / OTC: manual-only, not auto-traded ---
+  NZAUF:
+    benchmark: GDXJ
+    sector: exploration_otc
+    max_spread_pct: 0.75
+    overnight_category: manual_only
+    overnight_position_multiplier: 0.0
+    manual_only: true
+    profit_target_pct: null
+    volatility_category: very_high
+
+  AAGAF:
+    benchmark: SILJ
+    sector: exploration_otc
+    max_spread_pct: 0.75
+    overnight_category: manual_only
+    overnight_position_multiplier: 0.0
+    manual_only: true
+    profit_target_pct: null
+    volatility_category: very_high
+
+  # --- Utility: explicitly NOT part of the mining strategy universe ---
+  AQN:
+    benchmark: XLU
+    sector: utility
+    strategy: excluded
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 2.5]
+    volatility_category: low
+
+
+  AMD:
+    benchmark: SMH
+    sector: semiconductors
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 5.0]
+    volatility_category: normal
+    # median daily range 4.42%, median close $421.22, median $vol $10849M
+
+  MU:
+    benchmark: SMH
+    sector: semiconductors
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 6.0]
+    volatility_category: normal
+    # median daily range 5.25%, median close $690.20, median $vol $25071M
+
+  PLTR:
+    benchmark: XLK
+    sector: software
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 4.5]
+    volatility_category: normal
+    # median daily range 3.94%, median close $143.07, median $vol $5228M
+
+  CRWD:
+    benchmark: XLK
+    sector: software
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 5.0]
+    volatility_category: normal
+    # median daily range 4.37%, median close $133.74, median $vol $1283M
+
+  OXY:
+    benchmark: XLE
+    sector: energy
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: normal
+    # median daily range 2.56%, median close $56.05, median $vol $473M
+
+  HAL:
+    benchmark: XLE
+    sector: energy
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.5]
+    volatility_category: normal
+    # median daily range 2.98%, median close $35.26, median $vol $338M
+
+  SCHW:
+    benchmark: XLF
+    sector: financials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.0, 2.5]
+    volatility_category: low_volatility_diversified
+    # median daily range 2.08%, median close $95.58, median $vol $649M
+
+  COIN:
+    benchmark: XLF
+    sector: financials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 6.0]
+    volatility_category: normal
+    # median daily range 5.30%, median close $175.91, median $vol $1471M
+
+  MRNA:
+    benchmark: XBI
+    sector: biotech
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.5, 6.5]
+    volatility_category: high_volatility_speculative
+    # median daily range 5.75%, median close $52.48, median $vol $322M
+
+  HIMS:
+    benchmark: XLV
+    sector: healthcare
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [4.0, 7.5]
+    volatility_category: high_volatility_speculative
+    # median daily range 6.74%, median close $27.87, median $vol $433M
+
+  TSLA:
+    benchmark: XLY
+    sector: consumer_discretionary
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 3.5]
+    volatility_category: normal
+    # median daily range 3.22%, median close $394.88, median $vol $19838M
+
+  CHWY:
+    benchmark: XLY
+    sector: consumer_discretionary
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 4.5]
+    volatility_category: normal
+    # median daily range 4.05%, median close $24.01, median $vol $162M
+
+  BA:
+    benchmark: XLI
+    sector: industrials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: low_volatility_diversified
+    # median daily range 2.50%, median close $222.90, median $vol $1157M
+
+  GE:
+    benchmark: XLI
+    sector: industrials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: normal
+    # median daily range 2.58%, median close $323.74, median $vol $1123M
+
+  VST:
+    benchmark: XLU
+    sector: utilities_power
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.5]
+    volatility_category: normal
+    # median daily range 3.83%, median close $155.91, median $vol $587M
+
+  NRG:
+    benchmark: XLU
+    sector: utilities_power
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: normal
+    # median daily range 3.62%, median close $143.74, median $vol $271M

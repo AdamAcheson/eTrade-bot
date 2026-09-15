@@ -275,3 +275,100 @@ A sector's YTD gain accrues continuously, including overnight and on days the
 bot sits out. A long-only intraday strategy holding ~1/5 of its capital for ~2
 hours a day can only ever capture a slice of it -- and in exchange carries 5.2%
 max drawdown against XME's own much larger swings.
+
+## Uncorrelated universe test
+
+The question: the strategy's remaining upside was argued to be breadth, not
+selection (nineteen predictors tested, nineteen null). IR = IC x sqrt(breadth),
+and mining names move together, so the effective number of independent bets is
+far below the ticker count. Does adding names that do NOT move with silver raise
+the information ratio?
+
+Setup. Sixteen cross-sector names, two each from eight sectors, each with its own
+sector-ETF benchmark: AMD/MU (SMH), PLTR/CRWD (XLK), OXY/HAL (XLE), SCHW/COIN
+(XLF), MRNA (XBI), HIMS (XLV), TSLA/CHWY (XLY), BA/GE (XLI), VST/NRG (XLU).
+Three years of 5-minute bars backfilled for all 25 symbols.
+
+Two things keep this from being a re-tune in disguise:
+
+* `config_experiments/<name>/` symlinks strategy.yaml, risk.yaml, broker.yaml and
+  schedule.yaml back to `config/`, so every parameter is byte-identical to the
+  mining book and the universe is the only variable. `--config-dir` selects it;
+  the experiment tickers are never added to `config/tickers.yaml`, because
+  run_bot.py reads the same universe the backtest does.
+* `profit_target_pct` is derived, not chosen: [0.58, 1.11] x each name's own
+  median daily range, those being the median ratios the shipped mining config
+  already embodies. `volatility_category` buckets on the same measurement.
+  Nothing was picked by looking at P&L.
+
+### Holdout (568 days, out-of-sample for mining, never tuned at all for the rest)
+
+| universe | trades | net | return | max DD | return/DD | Sharpe |
+|---|---|---|---|---|---|---|
+| mining (20 names) | 1,838 | $71,199 | 71.2% | 5.2% | 13.7 | 3.99 |
+| cross-sector (16 names) | 1,086 | $46,982 | 47.0% | 3.4% | 13.7 | 3.69 |
+| **combined (36), 5 slots** | **2,635** | **$110,002** | **110.0%** | **4.3%** | **25.6** | **4.70** |
+| combined (36), 10 slots | 2,828 | $100,477 | 100.5% | 7.0% | 14.4 | 4.09 |
+
+Read the first two rows first: run alone, the cross-sector book is not better
+than the mining book. Same return/DD to one decimal, slightly lower Sharpe,
+fewer trades. The strategy travels -- it is not a silver artifact -- but
+swapping one universe for the other buys nothing.
+
+Run TOGETHER is where the gain is. Combined earns more than mining alone while
+drawing down LESS, which is diversification and nothing else: the two books'
+bad days are not the same days.
+
+### Effective breadth
+
+N_eff = N / (1 + (N-1) * rho_bar), on per-ticker daily P&L. Two correlations,
+because they answer different questions -- "portfolio" fills no-trade days with
+zero and so includes co-activity; "conditional" uses only days both names traded
+and so isolates the signals.
+
+| universe | rho (portfolio) | N_eff | rho (conditional) | N_eff | Sharpe |
+|---|---|---|---|---|---|
+| mining (20) | +0.035 | 12.0 | +0.115 | 6.3 | 3.99 |
+| cross-sector (16) | +0.023 | 12.0 | +0.108 | 6.1 | 3.69 |
+| combined (36) | +0.019 | 21.7 | +0.077 | 9.8 | 4.70 |
+
+The law roughly holds. Mining's IC proxy is 3.99/sqrt(6.3) = 1.59; applied to the
+combined book's breadth it predicts 1.59*sqrt(9.8) = 4.98 against an observed
+4.70. Breadth, not a better signal, is what moved.
+
+NOTE on an earlier number: a previous ad-hoc measurement put mining's effective
+breadth at 3.2 with mean pairwise correlation +0.267. Measured by
+`scripts/analyze_breadth.py` on per-ticker daily P&L it is 6.3 at +0.115. The
+old figure came from a different projection and should not be compared against
+these; the direction of the finding is unchanged but the magnitude was overstated.
+
+### Is the combined book's advantage real?
+
+Paired by day -- both books face the same market, so an unpaired test would throw
+that away and let market variance swamp the difference.
+
+| period | combined - mining, per active day | t | 5-day-block bootstrap 95% CI |
+|---|---|---|---|
+| holdout (529 active days) | +$75.15 | 4.65 | +$46.52 .. +$106.98 |
+| tuning (179 active days) | +$63.35 | 2.38 | +$18.76 .. +$112.21 |
+
+Both periods, same direction, bootstrap CI clear of zero in both.
+
+### More slots is not more breadth
+
+Ten concurrent positions instead of five: 193 more trades, $9,525 LESS profit,
+and drawdown up from 4.3% to 7.0%. Slot contention is doing real work -- with 36
+names feeding 5 slots the bot takes the best five candidates of a bigger pool,
+and loosening the constraint just lets the marginal ones in. Widen the universe,
+not the slot count.
+
+### What this does NOT establish
+
+* Every caveat from the $5,000-account analysis still binds and gets WORSE here:
+  no buying-power check exists in the code, commissions are unmodelled, and the
+  PDT rule already made ~2.4 trades/day illegal under $25k. The combined book
+  runs ~4.6 trades/day.
+* 36 names at 5-minute resolution is 36 live quote subscriptions and 36x the
+  data-feed cost. Nothing has been checked about whether the feed sustains it.
+* The cross-sector names carry event risk the mining book does not -- earnings,
+  FDA dates, index rebalances. None of that is modelled.

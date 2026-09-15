@@ -172,6 +172,15 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--config-dir", type=str, default=None,
+        help="Load config/*.yaml from this directory instead of config/. Used to run the "
+             "strategy against an ALTERNATE UNIVERSE without adding those tickers to the "
+             "shipped config -- putting e.g. TSLA in config/tickers.yaml would silently widen "
+             "what the live bot trades. The experiment directory symlinks strategy.yaml, "
+             "risk.yaml, broker.yaml and schedule.yaml back to config/, so only the universe "
+             "differs and the parameters cannot drift apart.",
+    )
+    parser.add_argument(
         "--only-tickers", type=str, default=None,
         help="Restrict the tradeable universe to these comma-separated tickers (in-memory "
              "only). Needed to compare periods fairly: the deep-history holdout can only "
@@ -247,7 +256,9 @@ def main() -> int:
         return 1
 
     try:
-        config: AppConfig = load_config()
+        config: AppConfig = (
+            load_config(args.config_dir) if args.config_dir else load_config()
+        )
     except ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         return 1

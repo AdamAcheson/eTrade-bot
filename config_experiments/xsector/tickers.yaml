@@ -1,0 +1,194 @@
+# EXPERIMENT UNIVERSE -- cross-sector, deliberately low-correlation.
+#
+# This file is NOT loaded by the live bot or by a default backtest. It exists so
+# scripts/backtest.py --config-dir config_experiments/xsector can answer one
+# question: the mining universe's effective breadth is far below its nominal
+# ticker count because the names all move together, and IR = IC x sqrt(breadth),
+# so does running the SAME strategy on names that do not move together raise the
+# information ratio?
+#
+# strategy.yaml / risk.yaml / broker.yaml / schedule.yaml in this directory are
+# symlinks back to config/, so every parameter is identical to the shipped mining
+# config and the universe is the only variable.
+#
+# profit_target_pct is derived mechanically, not chosen: [0.58, 1.11] x each
+# name's own median daily range, which are the median ratios the shipped mining
+# config already uses. volatility_category is bucketed on the same measurement.
+# Nothing here was picked by looking at P&L.
+
+tickers:
+  AMD:
+    benchmark: SMH
+    sector: semiconductors
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 5.0]
+    volatility_category: normal
+    # median daily range 4.42%, median close $421.22, median $vol $10849M
+
+  MU:
+    benchmark: SMH
+    sector: semiconductors
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 6.0]
+    volatility_category: normal
+    # median daily range 5.25%, median close $690.20, median $vol $25071M
+
+  PLTR:
+    benchmark: XLK
+    sector: software
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 4.5]
+    volatility_category: normal
+    # median daily range 3.94%, median close $143.07, median $vol $5228M
+
+  CRWD:
+    benchmark: XLK
+    sector: software
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 5.0]
+    volatility_category: normal
+    # median daily range 4.37%, median close $133.74, median $vol $1283M
+
+  OXY:
+    benchmark: XLE
+    sector: energy
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: normal
+    # median daily range 2.56%, median close $56.05, median $vol $473M
+
+  HAL:
+    benchmark: XLE
+    sector: energy
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.5]
+    volatility_category: normal
+    # median daily range 2.98%, median close $35.26, median $vol $338M
+
+  SCHW:
+    benchmark: XLF
+    sector: financials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.0, 2.5]
+    volatility_category: low_volatility_diversified
+    # median daily range 2.08%, median close $95.58, median $vol $649M
+
+  COIN:
+    benchmark: XLF
+    sector: financials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 6.0]
+    volatility_category: normal
+    # median daily range 5.30%, median close $175.91, median $vol $1471M
+
+  MRNA:
+    benchmark: XBI
+    sector: biotech
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.5, 6.5]
+    volatility_category: high_volatility_speculative
+    # median daily range 5.75%, median close $52.48, median $vol $322M
+
+  HIMS:
+    benchmark: XLV
+    sector: healthcare
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [4.0, 7.5]
+    volatility_category: high_volatility_speculative
+    # median daily range 6.74%, median close $27.87, median $vol $433M
+
+  TSLA:
+    benchmark: XLY
+    sector: consumer_discretionary
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 3.5]
+    volatility_category: normal
+    # median daily range 3.22%, median close $394.88, median $vol $19838M
+
+  CHWY:
+    benchmark: XLY
+    sector: consumer_discretionary
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 4.5]
+    volatility_category: normal
+    # median daily range 4.05%, median close $24.01, median $vol $162M
+
+  BA:
+    benchmark: XLI
+    sector: industrials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: low_volatility_diversified
+    # median daily range 2.50%, median close $222.90, median $vol $1157M
+
+  GE:
+    benchmark: XLI
+    sector: industrials
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: normal
+    # median daily range 2.58%, median close $323.74, median $vol $1123M
+
+  VST:
+    benchmark: XLU
+    sector: utilities_power
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.5]
+    volatility_category: normal
+    # median daily range 3.83%, median close $155.91, median $vol $587M
+
+  NRG:
+    benchmark: XLU
+    sector: utilities_power
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: normal
+    # median daily range 3.62%, median close $143.74, median $vol $271M
