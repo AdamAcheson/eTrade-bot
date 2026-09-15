@@ -117,6 +117,11 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         max_pct_above_open_without_consolidation=chase_cfg["max_pct_above_open_without_consolidation"],
     )
     if chase.overextended:
+        # Record WHICH of the three chase sub-rules fired. They have very different
+        # characters -- "1 ATR above VWAP" is close to the definition of a strong
+        # mover, while "5% above the open with no consolidation" is a genuine blow-off
+        # -- and the rejection reason alone cannot tell them apart.
+        signal.extra["chase_rule"] = chase.reason
         return reject(RejectionReason.REJECTED_OVEREXTENDED)
 
     setup_cfg = strategy_config["setups"]
