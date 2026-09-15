@@ -160,6 +160,19 @@ tickers:
     profit_target_pct: [1.5, 2.5]
     volatility_category: low
 
+  # Excluded on liquidity, not on P&L. NEXA quotes a median 37 five-minute bars a
+  # session against 78 for a liquid name (404 of 756 cached sessions under 40
+  # bars) -- it simply does not trade every five minutes. scripts/backtest.py
+  # synthesizes bid/ask as a fraction of max_spread_pct above, so on a name that
+  # thin the modelled fills are optimistic and real ones would be worse than
+  # anything measured here.
+  #
+  # The measured case is supporting, not decisive. Removing NEXA is worth
+  # +$3,027.91 over the 2023-09..2025-12 holdout and -$0.38 over 2026-06..09, and
+  # the holdout gain is NOT significant on its own (95% CI [-$427, +$7,901]).
+  # Note it gains far more than NEXA's own -$1,057.19: with 5 concurrent
+  # positions, freeing its slots matters more than its own P&L. Win rate and
+  # return-per-drawdown are slightly better without it in both periods.
   NEXA:
     benchmark: PICK
     sector: diversified_mining
@@ -169,6 +182,7 @@ tickers:
     manual_only: false
     profit_target_pct: [2.0, 4.0]
     volatility_category: moderate
+    strategy: excluded
 
   # --- Uranium (benchmark: URA) ---
   UEC:
