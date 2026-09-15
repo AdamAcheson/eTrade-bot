@@ -179,6 +179,13 @@ def main() -> int:
              "the same four separates a period effect from a universe-size effect.",
     )
     parser.add_argument(
+        "--starting-equity", type=float, default=None,
+        help="EXPERIMENT override: paper account starting equity (in-memory only). "
+             "Results do NOT scale linearly: at small balances the 25%%-of-equity cap "
+             "binds instead of the $25k notional cap, and share counts round down to "
+             "whole shares, which bites hardest on expensive tickers.",
+    )
+    parser.add_argument(
         "--no-chase-rule", action="store_true",
         help="EXPERIMENT override: disable the do-not-chase rule entirely (in-memory only).",
     )
@@ -255,6 +262,7 @@ def main() -> int:
         args.no_trailing, args.only_tickers is not None,
         args.no_partial_exit, args.partial_exit_trigger_r is not None,
         args.no_chase_rule, args.chase_max_atr_above_vwap is not None,
+        args.starting_equity is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -286,6 +294,9 @@ def main() -> int:
             # built below, covers both.
             config.risk["behavior"]["max_concurrent_positions"] = args.max_concurrent_positions
             print(f"  behavior.max_concurrent_positions = {args.max_concurrent_positions}")
+        if args.starting_equity is not None:
+            config.broker["paper"]["starting_equity"] = args.starting_equity
+            print(f"  paper.starting_equity = {args.starting_equity}")
         if args.no_chase_rule:
             # Every threshold to a value no bar can reach, rather than adding a
             # branch to the strategy layer for an experiment.
