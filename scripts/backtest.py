@@ -179,6 +179,16 @@ def main() -> int:
              "the same four separates a period effect from a universe-size effect.",
     )
     parser.add_argument(
+        "--no-partial-exit", action="store_true",
+        help="EXPERIMENT override: disable the 1.5R partial exit (applied in-memory only). "
+             "It sells sell_fraction of EVERY winner at 1.5R -- including the small number of "
+             "trades that go on to carry the whole P&L.",
+    )
+    parser.add_argument(
+        "--partial-exit-trigger-r", type=float, default=None,
+        help="EXPERIMENT override: R-multiple at which the partial exit fires (in-memory only).",
+    )
+    parser.add_argument(
         "--no-trailing", action="store_true",
         help="EXPERIMENT override: force the ratcheting trailing stop OFF (applied in-memory "
              "only). Needed to reproduce pre-trailing behavior now that config/strategy.yaml "
@@ -232,6 +242,7 @@ def main() -> int:
         args.max_position_size_dollars is not None, args.max_trades_per_day is not None,
         args.trailing_atr is not None, args.max_position_pct_equity is not None,
         args.no_trailing, args.only_tickers is not None,
+        args.no_partial_exit, args.partial_exit_trigger_r is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -263,6 +274,12 @@ def main() -> int:
             # built below, covers both.
             config.risk["behavior"]["max_concurrent_positions"] = args.max_concurrent_positions
             print(f"  behavior.max_concurrent_positions = {args.max_concurrent_positions}")
+        if args.no_partial_exit:
+            config.strategy["trade_management"]["partial_exit"]["enabled"] = False
+            print("  partial_exit = OFF")
+        if args.partial_exit_trigger_r is not None:
+            config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
+            print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
         if args.only_tickers is not None:
             keep = {t.strip().upper() for t in args.only_tickers.split(",") if t.strip()}
             missing = keep - set(config.tickers)
