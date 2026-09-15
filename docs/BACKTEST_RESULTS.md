@@ -224,3 +224,54 @@ benchmark strength, setup type, silver (three definitions), Dow, stop width, hol
 time, concurrency, hour-of-day, entry price, day-of-week, sector breadth, runner
 persistence. Nineteen.
 
+
+## Sector comparison: the bot vs "Metals & Mining is up 21% YTD"
+
+The screener figure (127 companies, +21.43% YTD) is an average of constituent
+returns, not an investable return. XME -- the actual SPDR S&P Metals & Mining
+ETF, in our own cache -- is **+4.69%** over the same 1/02-9/14 window. Our own
+20-stock universe bought and held equal-weight is +11.80% mean / +13.32% median.
+Nobody earns the 21% without buying all 127 names in equal size and rebalancing.
+
+Bot vs sector on identical windows, shipped config, $100k start:
+
+| window | bot net | bot return | XME | universe equal-wt |
+|---|---|---|---|---|
+| YTD 2026 (1/02-9/14, 175d) | $29,319 | **+29.3%** (5.2% DD) | +4.69% | +11.80% |
+| Jun 1 - Sep 14 (the 7.9% run) | ~$7,791 | **+7.8%** | -11.15% | -7.68% |
+| January 2026 alone | $14,798 | +14.8% | +12.88% | +21.40% |
+
+The bot beat the sector in both windows. The apparent shortfall came from
+comparing the bot's Jun-Sep number against the sector's YTD number.
+
+CAVEAT: the YTD window sits almost entirely inside the tuning period (which
+starts 2025-12-17), so +29.3% is IN-SAMPLE. The honest forward number is the
+holdout's 17.8%/yr at 3.9% max drawdown.
+
+### Why the returns feel thin outside January
+
+| month | net |
+|---|---|
+| 2026-01 | $14,798 |
+| 2026-02 | $4,008 |
+| 2026-03 | $308 |
+| 2026-04 | -$1,094 |
+| 2026-05 | $3,508 |
+| 2026-06 | $2,351 |
+| 2026-07 | $3,157 |
+| 2026-08 | $2,736 |
+| 2026-09 (partial) | -$453 |
+
+January is 50% of the year's profit. Consistent with the concentration finding:
+36 of 503 trades (7.2%) carry 100% of net; the top 5% of trades carry 80%.
+
+### Structural reason the bot cannot track a sector trend
+
+* Time-weighted capital deployed: **22.5%** of equity. Flat the other 77.5%.
+* Average hold 123 minutes; **zero** overnight positions in 175 days.
+* 31 of 175 days (18%) have no trade at all.
+
+A sector's YTD gain accrues continuously, including overnight and on days the
+bot sits out. A long-only intraday strategy holding ~1/5 of its capital for ~2
+hours a day can only ever capture a slice of it -- and in exchange carries 5.2%
+max drawdown against XME's own much larger swings.
