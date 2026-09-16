@@ -372,3 +372,54 @@ not the slot count.
   data-feed cost. Nothing has been checked about whether the feed sustains it.
 * The cross-sector names carry event risk the mining book does not -- earnings,
   FDA dates, index rebalances. None of that is modelled.
+
+### How the cross-sector names were chosen, and what that costs
+
+Stated plainly: they were picked by hand, from knowledge, not from a screen.
+There was no pre-registered filter run over all US equities. The criteria applied
+were:
+
+1. **A liquid sector ETF must exist to benchmark against.** This is a hard
+   constraint, not a preference -- benchmark confirmation is an entry gate
+   (REJECTED_BENCHMARK_CONFIRMATION is the single largest rejection bucket), so a
+   name with no tradeable sector proxy cannot generate a signal at all. That alone
+   restricts the field to the GICS sectors with a real ETF: SMH, XLK, XLE, XLF,
+   XBI, XLV, XLY, XLI, XLU.
+2. **Two names per sector, eight sectors.** Pairs are deliberate: if within-sector
+   correlation reappears between AMD/MU the way it does between AG/EXK, that is
+   visible, and it means sector count -- not ticker count -- is what sets breadth.
+3. **Daily range comparable to the mining book** (mining spans 1.7%-8.8%; these
+   span 2.1%-6.7%), so the shipped ATR-based stops and R-targets transfer without
+   re-tuning.
+4. **Liquid enough for the 0.15% spread gate** -- all sixteen clear $160M median
+   daily dollar volume.
+
+Criteria 1, 3 and 4 are mechanical. Criterion 2 is a design choice. What is NOT
+mechanical is which two names per sector: those came from memory, which means
+names that were memorable for having trended are over-represented. That is
+hindsight bias and it should be assumed present until measured.
+
+Measuring it. Two adversarial holdout runs, same 568 days, same parameters:
+
+| universe | net | max DD | return/DD |
+|---|---|---|---|
+| mining alone (20) | $71,199 | 5.2% | 13.7 |
+| combined, all 36 | $110,002 | 4.3% | **25.6** |
+| combined minus the 3 best cross-sector names (33) | $96,253 | 5.8% | 16.5 |
+| mining + only the 8 WORST cross-sector names (28) | $84,319 | 5.1% | 16.5 |
+
+The direction survives everything. Strip HIMS, COIN and PLTR -- 46% of the
+cross-sector book's profit -- and the combined book still beats mining alone by
+$25k. Keep only the eight names that performed WORST, chosen after the fact to be
+maximally unflattering, and it still beats mining alone by $13k. Diversification
+is doing real work that stock-picking luck cannot explain away.
+
+But the MAGNITUDE was inflated. The headline 25.6 return/DD drops to 16.5 under
+either adversarial cut, against mining's 13.7. So roughly half the improvement in
+return/DD rode on three fortunate names, and about half is the structural
+diversification benefit. 16.5 is the number to plan against, not 25.6.
+
+The honest next step, not yet done, would be to rebuild the universe from a
+mechanical screen -- rank every optionable US name with a sector-ETF benchmark by
+median daily range and dollar volume, take the top N per sector, and re-run. That
+removes the hand from the selection entirely.
