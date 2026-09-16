@@ -11,6 +11,7 @@ the tests check the screen against those decisions rather than against itself.
 """
 
 import os
+import re
 import sys
 
 import pytest
@@ -59,27 +60,48 @@ def test_thresholds_sit_between_the_two_reference_names():
     assert 300_000 < sl.MIN_DOLLAR_VOLUME <= 5_700_000
 
 
-def test_config_exclusions_and_screen_agree():
-    """Every name this project excluded for liquidity must still fail the screen,
-    and every enabled name whose numbers are recorded must still pass. The numbers
-    live in the config comments, so this catches a threshold edit that would
-    silently re-enable something."""
+def test_every_name_failing_the_screen_is_excluded_in_config():
+    """One direction only, and it is the direction that matters for safety: a name
+    too thin to trade must never be enabled. The converse does NOT hold -- a name
+    can pass the screen and still be excluded for an unrelated reason (GFI and HMY
+    were dropped on P&L, not liquidity), so asserting equality here would force a
+    liquidity justification onto decisions that never had one."""
     with open(os.path.join(ROOT, "config", "tickers.yaml")) as f:
         tickers = yaml.safe_load(f)["tickers"]
-    # measured from data_cache at the time each was added
-    measured = {
-        "NEXA": (37, 300_000), "TRX": (59, 200_000), "RMCO": (16, 20_000),
-        "CTGO": (61, 1_800_000), "NB": (69, 700_000), "EMAT": (62, 900_000),
-        "GFI": (78, 67_900_000), "HMY": (78, 47_300_000),
-        "AUGO": (78, 35_600_000), "PPTA": (78, 9_400_000),
-    }
-    for symbol, (bars, dollars) in measured.items():
-        assert symbol in tickers, f"{symbol} missing from config/tickers.yaml"
-        excluded = tickers[symbol].get("strategy") == "excluded"
-        screened_out = not sl.passes(bars, dollars)[0]
-        assert excluded == screened_out, (
-            f"{symbol}: config says excluded={excluded}, screen says exclude={screened_out}"
+    thin = {"NEXA": (37, 300_000), "TRX": (59, 200_000), "RMCO": (16, 20_000),
+            "CTGO": (61, 1_800_000), "NB": (69, 700_000), "EMAT": (62, 900_000)}
+    for symbol, (bars, dollars) in thin.items():
+        assert not sl.passes(bars, dollars)[0], f"{symbol} should fail the screen"
+        assert tickers[symbol].get("strategy") == "excluded", (
+            f"{symbol} fails the liquidity screen but is still enabled"
         )
+
+
+def test_non_liquidity_exclusions_state_that_they_are_not_liquidity_calls():
+    """A reader looking at `strategy: excluded` cannot tell WHY from the switch
+    alone. Anything excluded while PASSING the screen has to say so in place, or
+    the next person re-deriving the universe will assume it was too thin."""
+    with open(os.path.join(ROOT, "config", "tickers.yaml")) as f:
+        raw = f.read()
+    passes_screen = {"GFI": (78, 67_900_000), "HMY": (78, 47_300_000)}
+    for symbol, (bars, dollars) in passes_screen.items():
+        assert sl.passes(bars, dollars)[0], f"{symbol} should pass the screen"
+        block = re.search(rf"^  {symbol}:\n((?:    .*\n)+)", raw, re.M)
+        assert block, f"{symbol} missing from config"
+        assert "strategy: excluded" in block.group(1)
+        assert "NOT a liquidity call" in block.group(1), (
+            f"{symbol} is excluded but passes the screen, and does not say why"
+        )
+
+
+def test_enabled_names_all_pass_the_screen():
+    """The measured numbers for every name recorded in this file."""
+    with open(os.path.join(ROOT, "config", "tickers.yaml")) as f:
+        tickers = yaml.safe_load(f)["tickers"]
+    enabled = {"AUGO": (78, 35_600_000), "PPTA": (78, 9_400_000), "VZLA": (78, 5_700_000)}
+    for symbol, (bars, dollars) in enabled.items():
+        assert tickers[symbol].get("strategy") != "excluded"
+        assert sl.passes(bars, dollars)[0], f"{symbol} is enabled but fails the screen"
 
 
 def test_profile_returns_none_for_an_uncached_symbol():

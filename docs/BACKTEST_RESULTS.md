@@ -550,3 +550,45 @@ They do not. They lose money even in the backtest's forgiving world, before any
 real spread is charged. The exclusion does not depend on the spread argument --
 though the spread argument is still why the screen must run before the backtest
 rather than after.
+
+### Dropping GFI and HMY (2026-09-16, by request)
+
+Both are `strategy: excluded`. Both PASS `scripts/screen_liquidity.py` -- this is
+not a liquidity call, and the config says so in place so the next person
+re-deriving the universe does not assume it was.
+
+| period | universe | trades | net | max DD | return/DD | Sharpe | breadth |
+|---|---|---|---|---|---|---|---|
+| holdout | 24 names | 1,991 | $77,347 | 4.93% | **15.7** | 4.15 | 6.9 of 24 |
+| holdout | 22 names | 1,920 | **$77,809** | 5.41% | 14.4 | 4.12 | 6.5 of 22 |
+| tuning | 24 names | 630 | **$36,880** | 5.61% | 6.6 | 4.06 | 5.4 of 24 |
+| tuning | 22 names | 606 | $35,096 | 5.38% | 6.5 | 3.98 | 5.9 of 22 |
+
+Paired by day: holdout +$0.96/active day (t=+0.21), tuning -$11.01/active day
+(t=-0.91). Both CIs straddle zero comfortably. The drop is not measurable either
+way, which is the same verdict the addition got.
+
+Two things are worth recording because they contradict the reasoning that
+motivated the drop.
+
+**The tuning period got WORSE.** That is the period GFI and HMY lost money in
+(-$632 and -$271, -$903 between them). Removing them should have returned roughly
+that much. Instead the book fell $1,784. The slots they had been occupying were
+filled by trades that did worse than the losses removed -- so on the evidence that
+prompted this change, the two names were crowding out something worse, not
+something better.
+
+**The holdout's drawdown rose**, 4.93% -> 5.41%, while net barely moved. Return
+per unit of drawdown went 15.7 -> 14.4. The 24-name book is the better
+risk-adjusted one on the out-of-sample period.
+
+The methodological problem, stated plainly: the case for dropping these two came
+from their TUNING-period P&L. That is the window every parameter in config/ was
+fitted on, and the holdout -- the only honest evidence available -- had them both
+positive (+$888 and +$1,255). Selecting names on the fitted window is the same
+error as fitting a parameter on it, one level up. Thirteen and twenty-one trades
+in that window is also far too few to read a sign from.
+
+The change stands because it was asked for and its cost is inside the noise. It
+should not be cited as an improvement, and if the universe is ever re-derived
+from scratch these two belong back in the candidate pool.

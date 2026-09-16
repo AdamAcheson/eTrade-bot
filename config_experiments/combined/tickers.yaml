@@ -303,8 +303,12 @@ tickers:
     overnight_position_multiplier: 1.0
     manual_only: false
     profit_target_pct: [1.5, 3.0]
+    strategy: excluded
     volatility_category: normal
     # 78/78 bars/day (100%), $67.9M median daily $vol, $20.04 median close, 2.89% median range, from 2023-09-05
+    # EXCLUDED 2026-09-16 by request. NOT a liquidity call -- this name PASSES
+    # scripts/screen_liquidity.py. Dropped on per-period P&L: holdout +$888,
+    # tuning -$632. See docs/BACKTEST_RESULTS.md for why that evidence is weak.
 
   HMY:
     benchmark: GDX
@@ -314,8 +318,12 @@ tickers:
     overnight_position_multiplier: 1.0
     manual_only: false
     profit_target_pct: [2.0, 3.5]
+    strategy: excluded
     volatility_category: normal
     # 78/78 bars/day (100%), $47.3M median daily $vol, $12.16 median close, 3.18% median range, from 2023-09-05
+    # EXCLUDED 2026-09-16 by request. NOT a liquidity call -- this name PASSES
+    # scripts/screen_liquidity.py. Dropped on per-period P&L: holdout +$1,255,
+    # tuning -$271. See docs/BACKTEST_RESULTS.md for why that evidence is weak.
 
   AUGO:
     benchmark: GDX
