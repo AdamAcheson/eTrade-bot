@@ -589,6 +589,20 @@ positive (+$888 and +$1,255). Selecting names on the fitted window is the same
 error as fitting a parameter on it, one level up. Thirteen and twenty-one trades
 in that window is also far too few to read a sign from.
 
-The change stands because it was asked for and its cost is inside the noise. It
-should not be cited as an improvement, and if the universe is ever re-derived
-from scratch these two belong back in the candidate pool.
+**RESTORED the same day.** Both are enabled again and the universe is back to 24
+tradeable names. The measurements above are why: out-of-sample the 22-name book
+was worse on every risk-adjusted measure (return/DD 14.4 vs 15.7, breadth 6.5 vs
+6.9), and the tuning period -- the only evidence that had pointed toward dropping
+them -- moved AGAINST the drop once measured rather than assumed.
+
+The general lesson, which applies beyond these two names: a ticker's P&L is not
+its contribution. With five concurrent position slots, removing a name frees
+capacity that something else fills, and that replacement can be better or worse
+than what it displaced. NEXA's removal worked because the replacements were
+better (it gained more than NEXA's own -$1,057). Removing GFI and HMY did not,
+because they were displacing trades worse than their own small losses. Neither
+outcome is predictable from the name's own P&L column, so the only way to know is
+to run the book both ways.
+
+The config records the round trip in place rather than reverting silently, so the
+question does not get re-opened from scratch later.

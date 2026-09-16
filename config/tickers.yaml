@@ -295,12 +295,14 @@ tickers:
     overnight_position_multiplier: 1.0
     manual_only: false
     profit_target_pct: [1.5, 3.0]
-    strategy: excluded
     volatility_category: normal
     # 78/78 bars/day (100%), $67.9M median daily $vol, $20.04 median close, 2.89% median range, from 2023-09-05
-    # EXCLUDED 2026-09-16 by request. NOT a liquidity call -- this name PASSES
-    # scripts/screen_liquidity.py. Dropped on per-period P&L: holdout +$888,
-    # tuning -$632. See docs/BACKTEST_RESULTS.md for why that evidence is weak.
+    # Excluded 2026-09-16 and RESTORED the same day. The drop was measured and
+    # did not hold up: the holdout's drawdown rose 4.93% -> 5.41% for +$462 of net
+    # (return/DD 15.7 -> 14.4), and the tuning period -- the window that motivated
+    # the drop -- got WORSE by $1,784 despite removing $903 of losses, because the
+    # freed position slots filled with worse trades. Low trade count (38 holdout,
+    # 21 tuning) is why its P&L flips sign between periods, not a reason to cut it.
 
   HMY:
     benchmark: GDX
@@ -310,12 +312,14 @@ tickers:
     overnight_position_multiplier: 1.0
     manual_only: false
     profit_target_pct: [2.0, 3.5]
-    strategy: excluded
     volatility_category: normal
     # 78/78 bars/day (100%), $47.3M median daily $vol, $12.16 median close, 3.18% median range, from 2023-09-05
-    # EXCLUDED 2026-09-16 by request. NOT a liquidity call -- this name PASSES
-    # scripts/screen_liquidity.py. Dropped on per-period P&L: holdout +$1,255,
-    # tuning -$271. See docs/BACKTEST_RESULTS.md for why that evidence is weak.
+    # Excluded 2026-09-16 and RESTORED the same day. The drop was measured and
+    # did not hold up: the holdout's drawdown rose 4.93% -> 5.41% for +$462 of net
+    # (return/DD 15.7 -> 14.4), and the tuning period -- the window that motivated
+    # the drop -- got WORSE by $1,784 despite removing $903 of losses, because the
+    # freed position slots filled with worse trades. Low trade count (38 holdout,
+    # 21 tuning) is why its P&L flips sign between periods, not a reason to cut it.
 
   AUGO:
     benchmark: GDX
