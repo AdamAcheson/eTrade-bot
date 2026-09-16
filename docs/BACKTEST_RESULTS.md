@@ -423,3 +423,89 @@ The honest next step, not yet done, would be to rebuild the universe from a
 mechanical screen -- rank every optionable US name with a sector-ETF benchmark by
 median daily range and dollar volume, take the top N per sector, and re-run. That
 removes the hand from the selection entirely.
+
+## Nine mining names added by request (2026-09-16)
+
+RMCO, CTGO, EMAT, NB, PPTA, GFI, HMY, TRX, AUGO. All nine are now in
+`config/tickers.yaml`. Four trade; five are `strategy: excluded` on a liquidity
+screen, the same switch NEXA carries.
+
+### Why a liquidity screen and not just a backtest
+
+`scripts/backtest.py` synthesizes bid/ask as 30% of each ticker's own configured
+`max_spread_pct`, so the spread gate in risk_manager.py can NEVER reject anything
+in a backtest, and a five-minute interval that never traded is simply absent from
+the file rather than appearing as an unfillable moment. A name too thin to trade
+therefore backtests as though it were liquid. TRX at $0.40 carries a one-cent real
+spread -- 2.5% -- against the ~0.045% a backtest would assume, a 55x understatement
+of the cost to cross. The screen has to come from the bars, before the backtest.
+
+`scripts/screen_liquidity.py` encodes it: median >= 74 of 78 five-minute bars per
+session, and median daily dollar volume >= $5M. Both thresholds are anchored to
+decisions already in the config rather than chosen -- VZLA is the weakest ENABLED
+name (78 bars, $5.7M), NEXA was EXCLUDED at 37 bars, $0.3M. Run on NEXA the screen
+reproduces that exclusion independently.
+
+| ticker | what it is | benchmark | bars/day | median $vol | close | verdict |
+|---|---|---|---|---|---|---|
+| GFI | Gold Fields, large-cap producer | GDX | 78 (100%) | $67.9M | $20.04 | trade |
+| HMY | Harmony Gold, producer | GDX | 78 (100%) | $47.3M | $12.16 | trade |
+| AUGO | Aura Minerals, mid-tier gold/copper | GDX | 78 (100%) | $35.6M | $58.22 | trade* |
+| PPTA | Perpetua Resources, Stibnite development | GDXJ | 78 (100%) | $9.4M | $11.86 | trade |
+| CTGO | Contango Ore, Alaska gold | GDXJ | 61 (78%) | $1.8M | $19.57 | excluded |
+| NB | NioCorp, niobium/scandium/REE | REMX | 69 (88%) | $0.7M | $3.08 | excluded |
+| TRX | TRX Gold, Buckreef Tanzania | GDXJ | 59 (76%) | $0.2M | $0.40 | excluded |
+| EMAT | Evolution Metals & Technologies | REMX | 62 (79%) | $0.9M | $7.10 | excluded |
+| RMCO | Royalty Management, critical minerals | REMX | 16 (21%) | $0.02M | $1.32 | excluded |
+
+*AUGO listed 2025-07-16 and EMAT 2026-01-06, so neither has holdout history.
+
+GDXJ was backfilled as a junior benchmark: PPTA, CTGO and TRX are developers and
+explorers, and benchmarking them against GDX's large-cap producers would gate them
+on the wrong tape. Precedent is VZLA -> SILJ.
+
+### What the four additions do
+
+| period | universe | trades | net | max DD |
+|---|---|---|---|---|
+| holdout | mining 20 | 1,838 | $71,199 | 5.2% |
+| holdout | mining 24 | 1,991 | **$77,347** | 4.9% |
+| tuning | mining 20 | 569 | $32,283 | 5.2% |
+| tuning | mining 24 | 630 | **$36,880** | 5.6% |
+
+Positive in both periods (+$6,148 and +$4,597) and the holdout's drawdown fell.
+Effective breadth 6.3 -> 6.9, Sharpe 3.99 -> 4.15. PPTA carries most of it
+($5,193 of the holdout gain across 109 trades).
+
+BUT the additions are NOT statistically significant on their own:
+
+| period | per active day | t | bootstrap 95% CI | P(<=0) |
+|---|---|---|---|---|
+| holdout | +$12.68 | 1.55 | -$3.19 .. +$30.86 | 0.063 |
+| tuning | +$28.20 | 1.64 | -$4.49 .. +$63.14 | 0.050 |
+
+Both CIs straddle zero. Same direction in two independent periods with no
+drawdown cost is a reasonable basis for keeping them; it is not a demonstrated
+edge, and it should not be quoted as one.
+
+### The excluded five, measured
+
+Lifting `strategy: excluded` on all five (config_experiments/illiquid/) over the
+same holdout:
+
+| universe | trades | net | max DD |
+|---|---|---|---|
+| mining 24 | 1,991 | $77,347 | 4.9% |
+| mining 24 + the 5 excluded | 2,119 | **$66,178** | 5.4% |
+
+Adding them COSTS $11,169. Their own contributions: NB -$3,846, RMCO -$383,
+CTGO +$49, TRX +$703 -- a net -$3,477 between them, and the remaining -$7,692 is
+opportunity cost, the five consuming position slots that would otherwise have gone
+to better candidates.
+
+Worth stating because the prediction was wrong: the expectation was that these
+names would show inflated PHANTOM profits from the optimistic synthetic spread.
+They do not. They lose money even in the backtest's forgiving world, before any
+real spread is charged. The exclusion does not depend on the spread argument --
+though the spread argument is still why the screen must run before the backtest
+rather than after.

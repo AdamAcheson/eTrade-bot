@@ -278,6 +278,134 @@ tickers:
     profit_target_pct: [1.5, 2.5]
     volatility_category: low
 
+  # --- Added by request 2026-09-16 -----------------------------------------
+  # Nine names added in one batch. profit_target_pct is derived, not chosen:
+  # [0.58, 1.11] x each name's own median daily range, the median ratios the rest
+  # of this file already embodies.
+  #
+  # Five are marked strategy: excluded on a LIQUIDITY screen applied to the bars
+  # BEFORE any backtest, for a reason the backtest cannot discover on its own:
+  # scripts/backtest.py synthesizes bid/ask as 30% of each ticker's configured
+  # max_spread_pct (see its module docstring), so the spread gate can never reject
+  # anything in a backtest and an untradeable name reports clean profits. TRX at
+  # $0.40 would carry a 1-cent real spread -- 2.5% -- against the ~0.045% the
+  # backtest would assume. Those numbers are fiction, so they are not evidence.
+  #
+  # The bar: median >= 74 of 78 five-minute bars printed per day, and median daily
+  # dollar volume >= $5M. Reference points already in this file -- the weakest
+  # ENABLED name is VZLA (78 bars, $5.7M); NEXA was EXCLUDED at 37 bars, $0.3M.
+
+  GFI:
+    benchmark: GDX
+    sector: gold_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: normal
+    # 78/78 bars/day (100%), $67.9M median daily $vol, $20.04 median close, 2.89% median range, from 2023-09-05
+
+  HMY:
+    benchmark: GDX
+    sector: gold_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 3.5]
+    volatility_category: normal
+    # 78/78 bars/day (100%), $47.3M median daily $vol, $12.16 median close, 3.18% median range, from 2023-09-05
+
+  AUGO:
+    benchmark: GDX
+    sector: gold_copper_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+    # 78/78 bars/day (100%), $35.6M median daily $vol, $58.22 median close, 4.87% median range, from 2025-07-16
+    # NOTE: listed 2025-07; no holdout history
+
+  PPTA:
+    benchmark: GDXJ
+    sector: gold_developer
+    max_spread_pct: 0.25
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 6.0]
+    volatility_category: normal
+    # 78/78 bars/day (100%), $9.4M median daily $vol, $11.86 median close, 5.41% median range, from 2023-09-05
+
+  CTGO:
+    benchmark: GDXJ
+    sector: gold_developer
+    max_spread_pct: 0.3
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [3.0, 5.5]
+    volatility_category: normal
+    strategy: excluded
+    # 61/78 bars/day (78%), $1.8M median daily $vol, $19.57 median close, 4.97% median range, from 2023-09-05
+    # EXCLUDED: bar coverage 78% < 95%; $vol $1.8M < $5M
+
+  NB:
+    benchmark: REMX
+    sector: critical_minerals
+    max_spread_pct: 0.3
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high_volatility_speculative
+    strategy: excluded
+    # 69/78 bars/day (88%), $0.7M median daily $vol, $3.08 median close, 7.02% median range, from 2023-09-05
+    # EXCLUDED: bar coverage 88% < 95%; $vol $0.7M < $5M
+
+  TRX:
+    benchmark: GDXJ
+    sector: gold_miner
+    max_spread_pct: 0.3
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 5.0]
+    volatility_category: normal
+    strategy: excluded
+    # 59/78 bars/day (76%), $0.2M median daily $vol, $0.40 median close, 4.57% median range, from 2023-09-05
+    # EXCLUDED: bar coverage 76% < 95%; $vol $0.2M < $5M
+
+  EMAT:
+    benchmark: REMX
+    sector: critical_minerals
+    max_spread_pct: 0.3
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [5.5, 10.5]
+    volatility_category: high_volatility_speculative
+    strategy: excluded
+    # 62/78 bars/day (79%), $0.9M median daily $vol, $7.10 median close, 9.50% median range, from 2026-01-06
+    # EXCLUDED: bar coverage 79% < 95%; $vol $0.9M < $5M
+    # NOTE: listed 2026-01; no holdout history
+
+  RMCO:
+    benchmark: REMX
+    sector: critical_minerals_royalty
+    max_spread_pct: 0.3
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [4.0, 8.0]
+    volatility_category: high_volatility_speculative
+    strategy: excluded
+    # 16/78 bars/day (21%), $0.0M median daily $vol, $1.32 median close, 7.21% median range, from 2024-01-03
+    # EXCLUDED: bar coverage 21% < 95%; $vol $0.0M < $5M
+
 
   AMD:
     benchmark: SMH

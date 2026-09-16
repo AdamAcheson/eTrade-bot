@@ -1,9 +1,14 @@
-# Trading universe + per-ticker configuration.
-# See docs/ARCHITECTURE.md section 4 for the schema explanation.
+# EXPERIMENT ONLY -- the five liquidity-excluded names TURNED ON.
 #
-# overnight_category: normal | conditional | manual_only
-# strategy: mining (default) | excluded  (excluded tickers are never traded, only
-#           kept here so they are never silently mis-mapped into the mining universe)
+# Generated from config/tickers.yaml by lifting `strategy: excluded` on CTGO, NB,
+# TRX, EMAT and RMCO. This exists to SHOW why they are excluded, not to propose
+# trading them.
+#
+# scripts/backtest.py synthesizes bid/ask as 30% of each ticker's configured
+# max_spread_pct, so a backtest cannot see a real spread and cannot see a bar that
+# never printed. Any profit this config reports on those five names is an artifact
+# of that approximation. Read the numbers as a measurement of the approximation's
+# size, not as a result.
 
 tickers:
   # --- Silver miners (benchmark: SIL, except VZLA -> SILJ) ---
@@ -341,7 +346,7 @@ tickers:
     manual_only: false
     profit_target_pct: [3.0, 5.5]
     volatility_category: normal
-    strategy: excluded
+    # strategy: excluded  <-- LIFTED for this experiment only (CTGO)
     # 61/78 bars/day (78%), $1.8M median daily $vol, $19.57 median close, 4.97% median range, from 2023-09-05
     # EXCLUDED: bar coverage 78% < 95%; $vol $1.8M < $5M
 
@@ -354,7 +359,7 @@ tickers:
     manual_only: false
     profit_target_pct: [4.0, 8.0]
     volatility_category: high_volatility_speculative
-    strategy: excluded
+    # strategy: excluded  <-- LIFTED for this experiment only (NB)
     # 69/78 bars/day (88%), $0.7M median daily $vol, $3.08 median close, 7.02% median range, from 2023-09-05
     # EXCLUDED: bar coverage 88% < 95%; $vol $0.7M < $5M
 
@@ -367,7 +372,7 @@ tickers:
     manual_only: false
     profit_target_pct: [2.5, 5.0]
     volatility_category: normal
-    strategy: excluded
+    # strategy: excluded  <-- LIFTED for this experiment only (TRX)
     # 59/78 bars/day (76%), $0.2M median daily $vol, $0.40 median close, 4.57% median range, from 2023-09-05
     # EXCLUDED: bar coverage 76% < 95%; $vol $0.2M < $5M
 
@@ -380,7 +385,7 @@ tickers:
     manual_only: false
     profit_target_pct: [5.5, 10.5]
     volatility_category: high_volatility_speculative
-    strategy: excluded
+    # strategy: excluded  <-- LIFTED for this experiment only (EMAT)
     # 62/78 bars/day (79%), $0.9M median daily $vol, $7.10 median close, 9.50% median range, from 2026-01-06
     # EXCLUDED: bar coverage 79% < 95%; $vol $0.9M < $5M
     # NOTE: listed 2026-01; no holdout history
@@ -394,6 +399,6 @@ tickers:
     manual_only: false
     profit_target_pct: [4.0, 8.0]
     volatility_category: high_volatility_speculative
-    strategy: excluded
+    # strategy: excluded  <-- LIFTED for this experiment only (RMCO)
     # 16/78 bars/day (21%), $0.0M median daily $vol, $1.32 median close, 7.21% median range, from 2024-01-03
     # EXCLUDED: bar coverage 21% < 95%; $vol $0.0M < $5M
