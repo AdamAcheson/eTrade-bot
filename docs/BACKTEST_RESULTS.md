@@ -473,20 +473,61 @@ on the wrong tape. Precedent is VZLA -> SILJ.
 | tuning | mining 20 | 569 | $32,283 | 5.2% |
 | tuning | mining 24 | 630 | **$36,880** | 5.6% |
 
-Positive in both periods (+$6,148 and +$4,597) and the holdout's drawdown fell.
-Effective breadth 6.3 -> 6.9, Sharpe 3.99 -> 4.15. PPTA carries most of it
-($5,193 of the holdout gain across 109 trades).
+Positive in both periods (+$6,148 and +$4,597), Sharpe up in both (3.99 -> 4.15
+holdout, 3.81 -> 4.06 tuning).
 
-BUT the additions are NOT statistically significant on their own:
+The additions are NOT statistically significant on their own:
 
 | period | per active day | t | bootstrap 95% CI | P(<=0) |
 |---|---|---|---|---|
 | holdout | +$12.68 | 1.55 | -$3.19 .. +$30.86 | 0.063 |
 | tuning | +$28.20 | 1.64 | -$4.49 .. +$63.14 | 0.050 |
 
-Both CIs straddle zero. Same direction in two independent periods with no
-drawdown cost is a reasonable basis for keeping them; it is not a demonstrated
-edge, and it should not be quoted as one.
+Both CIs straddle zero. It is not a demonstrated edge and should not be quoted as
+one.
+
+#### Per-period split, which the book-level numbers hide
+
+The four names do NOT agree with each other across the two periods. Only the
+AGGREGATE is consistent:
+
+| ticker | holdout trades | holdout net | tuning trades | tuning net | agrees? |
+|---|---|---|---|---|---|
+| PPTA | 109 | +$5,193 | 22 | +$1,990 | yes |
+| AUGO | 9 | +$776 | 24 | +$990 | yes, but 9 trades |
+| HMY | 58 | +$1,255 | 13 | **-$271** | **no** |
+| GFI | 38 | +$888 | 21 | **-$632** | **no** |
+| subtotal | 214 | +$8,112 | 80 | +$2,077 | |
+
+Two of four flip sign. GFI and HMY are large-cap producers at 2.9-3.2% median
+daily range -- the least volatile names in the book -- and they trade rarely
+(38 and 58 times in 2.25 years) because they seldom clear the setup thresholds.
+On that trade count neither period's result means anything individually.
+
+AUGO's holdout figure rests on 9 trades: it listed 2025-07-16, so it exists for
+only the last ~5 months of a 2.25-year window. Treat the tuning period as its
+only real measurement.
+
+PPTA is the one name that stands on its own -- positive in both periods, 131
+trades, and 6th best in the entire 24-name book over the holdout.
+
+So the earlier phrasing here, "same direction in two independent periods", is
+true of the BOOK and not of the NAMES. The defensible claim is narrower: PPTA
+earned its place, and the other three are cheap to carry at 9-58 trades apiece
+while more evidence accumulates.
+
+#### Effective breadth moved in opposite directions
+
+| period | mining 20 | mining 24 | rho (conditional) |
+|---|---|---|---|
+| holdout | 6.3 of 20 | **6.9 of 24** | +0.115 -> +0.109 |
+| tuning | 6.1 of 20 | **5.4 of 24** | +0.121 -> +0.151 |
+
+The holdout says the additions bought independent bets. The tuning period says
+they bought correlated ones -- four gold names benchmarked to GDX/GDXJ, over 193
+days where the gold complex moved together. Sharpe still rose on the tuning
+period, but via added return outweighing added correlation, not via
+diversification. Do not cite the 6.3 -> 6.9 number without this one beside it.
 
 ### The excluded five, measured
 
