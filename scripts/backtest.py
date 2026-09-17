@@ -172,6 +172,13 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--min-relative-volume", type=float, default=None,
+        help="EXPERIMENT override: eligibility.min_relative_volume, the hard RVOL entry "
+             "gate (in-memory only). The shipped 1.10 demands today's cumulative volume "
+             "exceed 110%% of the all-history average at the same bar index, which refuses "
+             "moves that happen on ordinary participation.",
+    )
+    parser.add_argument(
         "--config-dir", type=str, default=None,
         help="Load config/*.yaml from this directory instead of config/. Used to run the "
              "strategy against an ALTERNATE UNIVERSE without adding those tickers to the "
@@ -273,7 +280,7 @@ def main() -> int:
         args.no_trailing, args.only_tickers is not None,
         args.no_partial_exit, args.partial_exit_trigger_r is not None,
         args.no_chase_rule, args.chase_max_atr_above_vwap is not None,
-        args.starting_equity is not None,
+        args.starting_equity is not None, args.min_relative_volume is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -325,6 +332,9 @@ def main() -> int:
         if args.partial_exit_trigger_r is not None:
             config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
             print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
+        if args.min_relative_volume is not None:
+            config.strategy["eligibility"]["min_relative_volume"] = args.min_relative_volume
+            print(f"  eligibility.min_relative_volume = {args.min_relative_volume}")
         if args.only_tickers is not None:
             keep = {t.strip().upper() for t in args.only_tickers.split(",") if t.strip()}
             missing = keep - set(config.tickers)

@@ -606,3 +606,86 @@ to run the book both ways.
 
 The config records the round trip in place rather than reverting silently, so the
 question does not get re-opened from scratch later.
+
+## Why 2026-09-17's big movers were missed (and the RVOL gate re-examined)
+
+SVM closed +8.91%, VZLA +8.67%, FSM +3.74% on 2026-09-17. The bot took three
+trades in HL and CDE and finished -$60.19. Asked how those were missed:
+
+### Most of the move happened before the opening bell
+
+| ticker | prev close -> open (GAP) | open -> close (INTRADAY) | share unreachable |
+|---|---|---|---|
+| FSM | +3.74% | **0.00%** | **100%** |
+| SVM | +5.19% | +3.53% | 59% |
+| VZLA | +4.34% | +4.16% | 52% |
+
+FSM opened at 11.93 and closed at 11.93. Its entire quoted gain was the overnight
+gap; there was no intraday move to capture at all. A long-only intraday strategy
+that is flat at every close cannot participate in a gap, by construction.
+
+### The intraday remainder came on BELOW-average volume
+
+| ticker | session volume | trailing-20 median | ratio |
+|---|---|---|---|
+| SVM | 1,804,571 | 1,948,361 | **0.93x** |
+| VZLA | 4,323,956 | 5,407,356 | **0.80x** |
+| FSM | 2,645,254 | 4,716,474 | **0.56x** |
+
+All three drifted up on lighter-than-normal participation. `min_relative_volume`
+refused them, which is the gate doing its job -- a move without volume behind it
+is what it exists to decline. HL and CDE, the two that traded, ran median RVOL
+2.31 and 2.35.
+
+### A real design flaw that is NOT the cause
+
+`build_volume_baselines` computes the RVOL baseline as the mean cumulative volume
+at each bar index across ALL strictly earlier days -- up to 750 sessions, with no
+recency window. Conventional relative volume uses a trailing 20-30 days. A
+multi-year mean is dragged by old spikes and structurally penalises names whose
+liquidity has declined.
+
+That looked like the explanation. It is not. Recomputing 2026-09-17 with a
+trailing-20 median baseline instead:
+
+| ticker | RVOL (all-history mean) | RVOL (trailing-20 median) | gate 1.1 |
+|---|---|---|---|
+| SVM | 0.39 | 0.93 | still fails |
+| VZLA | 1.09 | 0.80 | **worse** |
+| FSM | 0.31 | 0.56 | still fails |
+
+Across the 24-name universe exactly ONE ticker changes gate status on the day
+(EQX, 1.13 -> 0.92, and in the wrong direction). The baseline is worth fixing on
+its own merits but it would not have caught any of these.
+
+### Loosening the gate: measured, not adopted
+
+`--min-relative-volume` added to scripts/backtest.py. Holdout, 568 days:
+
+| gate | trades | net | max DD | return/DD |
+|---|---|---|---|---|
+| 0.7 | 2,604 | $76,128 | 4.20% | 18.1 |
+| 0.9 | 2,318 | **$82,880** | 4.30% | **19.3** |
+| 1.10 (shipped) | 1,991 | $77,347 | 4.93% | 15.7 |
+| 1.3 | 1,641 | $68,165 | 5.01% | 13.6 |
+
+0.9 beats the shipped value on both net AND drawdown out-of-sample. It does not
+survive the second period:
+
+| period | net at 0.9 vs 1.10 | max DD | paired t | bootstrap 95% CI |
+|---|---|---|---|---|
+| holdout | +$5,533 | 4.93% -> **4.30%** | +0.97 | -$12.88 .. +$32.55 |
+| tuning | +$2,647 | 5.61% -> **7.59%** | +0.61 | -$23.98 .. +$57.53 |
+
+Net improves in both periods but drawdown moves in OPPOSITE directions, and
+neither paired test comes close to significance. NOT adopted. The gate stays at
+1.10.
+
+### What would actually capture a gap
+
+Nothing in the intraday parameter space. Capturing FSM's move requires holding
+overnight into the catalyst -- a different strategy with a different risk profile
+(overnight gap risk cuts both ways, and every drawdown figure in this document
+assumes a book that is flat at every close). The config already carries
+`overnight_category` per ticker, so the machinery exists; whether an overnight
+variant earns its risk is an unanswered, testable question, not a tuning fix.
