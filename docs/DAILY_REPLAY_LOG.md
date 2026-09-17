@@ -22,19 +22,48 @@ Backtest baselines to compare against (19-ticker holdout, 568 sessions):
 
 ## Routine reliability
 
-**2026-09-14** -- the scheduled 17:30 ET routine fired and reported SUCCEEDED, but
-finished 35 seconds after firing and committed nothing. The fetch alone takes ~4
-minutes, so it cannot have run. Cause: TWELVEDATA_API_KEY lives in .env, which is
-gitignored and therefore exists only in the container it was created in. A
-fresh-session routine clones the repo and gets no .env, so step 1 fails
-immediately and the session exits cleanly -- "succeeded" describes the session,
-not the work.
+**The diagnosis recorded here on 2026-09-14 was WRONG.** It blamed the missing
+API key. Corrected 2026-09-17 after measuring instead of inferring:
 
-This row was produced by running the same four steps by hand at 22:22 ET.
+* A session created fresh in this cloud environment DOES receive
+  `TWELVEDATA_API_KEY` from the environment config. Verified by probe: "present
+  (32 chars)". The key was fixed days ago and nobody confirmed it.
+* What a fired session does NOT get is **the repository**. The routine's stored
+  `session_request.config.sources` is `[]`, so nothing is cloned. The probe
+  session came up in `/home/user` with no `eTrade-bot` directory at all.
 
-Until the key is available to fired sessions, treat a SUCCEEDED run with no new
-commit as a FAILED replay. The log, not the routine's status, is the record.
+So `cd /home/user/eTrade-bot` failed on the first line, every step after it was a
+no-op, and the session exited cleanly in ~30 seconds. Runs on 09-14 (35s) and
+09-16 (29s) have the same signature. `last_run.status` describes whether the
+SESSION exited cleanly, never whether the work happened -- so it read SUCCEEDED
+both times.
 
+The lesson worth keeping: a scheduled job whose steps live in prose cannot fail.
+Only a process with an exit code can.
+
+### The fix
+
+`scripts/daily_replay.py` does the whole replay in one process with a real exit
+code contract -- 0 ran, 2 no key, 3 not a trading session, 4 data unusable (row
+still appended), 5 subprocess failed -- and refuses to log the same date twice, so
+a retrying scheduler cannot double-count a session.
+
+`.github/workflows/daily-replay.yml` runs it on schedule. CI rather than an agent
+session because of where the key can safely live: `.env` is gitignored, and the
+cloud environment's Environment variables box warns in its own UI that values are
+visible to anyone using that environment. A GitHub Actions secret is the only
+place in this project's infrastructure built to hold a credential.
+
+The workflow runs at **22:30 UTC**, which also retires a bug never hit in
+production: the old cron `30 21 * * 1-5` was 17:30 ET only during EDT, and would
+have fired at 16:30 ET under EST -- half an hour before the close, and two hours
+before Twelve Data finishes consolidating volume. 22:30 UTC is 18:30 ET in summer
+and 17:30 ET in winter. Both are after the close and after consolidation, so no
+DST handling is needed at all.
+
+**One manual step remains:** add `TWELVEDATA_API_KEY` under the repo's
+Settings -> Secrets and variables -> Actions. Until then the workflow fails loudly
+on its first step, which is the intended behaviour.
 
 ## 2026-09-16: the cleanest zero-trade session yet
 

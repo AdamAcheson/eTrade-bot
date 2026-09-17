@@ -1,0 +1,81 @@
+name: Daily session replay
+
+# Runs the mining bot over the session that just closed and appends one row to
+# docs/DAILY_REPLAY_LOG.md.
+#
+# This lives in CI rather than in a scheduled agent session for one reason: the
+# API key. TWELVEDATA_API_KEY cannot be committed (.env is gitignored), and the
+# cloud environment's "Environment variables" box warns in the UI that its values
+# are visible to anyone using that environment. A GitHub Actions secret is the
+# one place in this project's infrastructure actually built to hold a credential.
+#
+# 22:30 UTC is deliberate and needs no DST handling: it is 18:30 ET while EDT is
+# in effect and 17:30 ET under EST. Both are comfortably after the 16:00 close AND
+# after Twelve Data finishes consolidating volume (~80 minutes post-close). The
+# previous cron, 30 21 * * 1-5, was correct only during EDT -- under EST it would
+# have fired at 16:30 ET, half an hour before the data it needs exists.
+
+on:
+  schedule:
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "Session to replay (YYYY-MM-DD, ET). Blank = today."
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  # Two replays appending to the same log would race. daily_replay.py refuses to
+  # double-log a date, but serialising is cheaper than relying on that.
+  group: daily-replay
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/etrade-trading-bot-3f93c0
+          # data_cache/ is tracked (~211MB), and the replay only tops up the last
+          # few sessions, so a full checkout is what makes this cheap to run daily.
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Fail fast if the secret is missing
+        env:
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+        run: |
+          if [ -z "$TWELVEDATA_API_KEY" ]; then
+            echo "::error::TWELVEDATA_API_KEY secret is not set. Add it under"
+            echo "::error::Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+          echo "secret present (${#TWELVEDATA_API_KEY} chars)"
+
+      - name: Replay the session
+        env:
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set +e
+          python3 scripts/daily_replay.py ${{ inputs.day && format('--day {0}', inputs.day) || '' }}
+          code=$?
+          set -e
+          # 3 = weekend or holiday. Nothing to do and nothing wrong, so the run is
+          # green. Every other nonzero code is a real failure and must go red --
+          # the whole point of moving this out of an agent session is that a
+          # no-op can no longer masquerade as success.
+          if [ $code -eq 3 ]; then echo "not a trading session"; exit 0; fi
+          exit $code
