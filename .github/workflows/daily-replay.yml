@@ -17,7 +17,16 @@ name: Daily session replay
 
 on:
   schedule:
-    - cron: "30 22 * * 1-5"
+    # 22:37, not 22:30, deliberately. GitHub queues every repo's scheduled runs
+    # together and explicitly warns they "may be delayed during periods of high
+    # load" -- :00 and :30 are the most congested minutes on the platform, and a
+    # delayed schedule is not merely late, GitHub DROPS it. The first run at
+    # 22:30 on 2026-09-17 never fired at all (workflow state active, file on the
+    # default branch, nothing wrong with the config). An off-peak minute is the
+    # standard mitigation. Any minute in this window works: 22:37 UTC is 18:37 ET
+    # under EDT and 17:37 ET under EST, both after the close and after Twelve
+    # Data finishes consolidating volume.
+    - cron: "37 22 * * 1-5"
   workflow_dispatch:
     inputs:
       day:
