@@ -689,3 +689,64 @@ overnight into the catalyst -- a different strategy with a different risk profil
 assumes a book that is flat at every close). The config already carries
 `overnight_category` per ticker, so the machinery exists; whether an overnight
 variant earns its risk is an unanswered, testable question, not a tuning fix.
+
+## Trailing-stop multiplier: the mechanism is real, the fix is not
+
+Prompted by 2026-09-17, where the day's only winner peaked at +1.71R and exited
+at +0.73R. The mechanism looked like a genuine defect: the initial stop is
+0.85 x ATR but the trailing stop trails by 1.0 x ATR, so the trail is WIDER than
+the risk unit and can never give back less than ~1.2R from the high-water mark.
+
+Holdout, 568 days, sweeping `--trailing-atr`:
+
+| trail (ATR) | trades | net | max DD | return/DD |
+|---|---|---|---|---|
+| 0.3 | 2,019 | $82,968 | 4.80% | 17.3 |
+| **0.4** | 2,017 | **$83,252** | 4.59% | **18.2** |
+| 0.5 | 2,015 | $81,460 | 4.60% | 17.7 |
+| 0.6 | 2,010 | $77,094 | 4.58% | 16.8 |
+| 0.85 | 2,006 | $77,402 | 4.72% | 16.4 |
+| 1.0 (shipped) | 1,991 | $77,347 | 4.93% | 15.7 |
+
+0.3-0.5 is a plateau, not a spike -- three adjacent values all land near $82-83k
+while 0.6 and above sit near $77k. A region with a cliff at 0.6 is the shape of a
+real effect rather than a fitted point, and it is roughly where the trail stops
+exceeding the 0.85 ATR risk unit. Both periods improve:
+
+| period | net at 1.0 | net at 0.4 | max DD 1.0 -> 0.4 |
+|---|---|---|---|
+| holdout | $77,347 | $83,252 | 4.93% -> **4.59%** |
+| tuning | $36,198 | $37,298 | 5.61% -> **2.94%** |
+
+### Why it is NOT adopted
+
+Two reasons, and the second is decisive.
+
+**It is not significant.** Paired by day: holdout +$12.20/day, t=+1.21, bootstrap
+CI -$9.16..+$33.23. Tuning +$6.79/day, t=+0.22, CI -$57.84..+$68.05. The holdout
+splits 243 better days against 237 worse -- a coin flip.
+
+**It eats the tail that the strategy lives on.**
+
+| | trail 1.0 | trail 0.4 |
+|---|---|---|
+| trades > +3R | 140 | **91** (-35%) |
+| trades > +5R | 41 | **23** (-44%) |
+| mean R | +0.321 | **+0.292** |
+
+96% of holdout profit comes from the 7% of trades above +3R. Tightening the trail
+cuts that population by more than a third and lowers mean R. The dollar gain shows
+up despite a WORSE per-trade edge, which means it is coming from the middle of the
+distribution while the right tail is being amputated -- exactly the trade this
+strategy must not make.
+
+The hypothesis was mechanically correct and strategically wrong: yes, a 1.0 ATR
+trail gives back more than 1R on every winner, and yes, fixing that captures more
+of the small winners. It does so by exiting the big ones early. Left at 1.0.
+
+Worth keeping from the diagnosis: on 2026-09-17 the stops were 0.22-0.40% of
+price against a 5.05% median daily range for those names -- CDE was stopped by a
+0.42% adverse move. That is the 14-period ATR being computed on FIVE-MINUTE bars,
+so it measures the last ~70 minutes and collapses in a quiet afternoon. Whether
+the stop should reference a longer horizon is a separate, untested question, and a
+more promising one than the trail multiplier.
