@@ -37,6 +37,7 @@ class Position:
 
     setup_type: Optional[str] = None
     setup_score: Optional[float] = None
+    score_components: Optional[dict] = None
 
     maximum_favorable_excursion: float = 0.0
     maximum_adverse_excursion: float = 0.0

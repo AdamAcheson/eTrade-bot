@@ -68,6 +68,11 @@ class Signal:
 
     setup_type: Optional[str] = None
     setup_score: Optional[float] = None
+    # Per-component score contributions, kept alongside the total so a backtest can
+    # ask which components actually predict the outcome. The total alone cannot
+    # answer that, and the answer turned out to be "none of them" -- see
+    # docs/BACKTEST_RESULTS.md.
+    score_components: Optional[dict] = None
 
     entry_candidate: bool = False
     entry_price: Optional[float] = None

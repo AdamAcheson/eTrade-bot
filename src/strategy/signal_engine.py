@@ -188,6 +188,7 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
 
     signal.setup_type = setup.setup_type
     signal.setup_score = score.total
+    signal.score_components = dict(vars(score))
     signal.entry_price = entry_price
     signal.stop = stop_price
     signal.target = target_price

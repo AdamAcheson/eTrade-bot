@@ -350,6 +350,7 @@ class TradingBot:
                 target_price=signal.target,
                 setup_type=signal.setup_type,
                 setup_score=signal.setup_score,
+                score_components=signal.score_components,
             )
 
     def manage_open_positions(self, now: datetime) -> None:

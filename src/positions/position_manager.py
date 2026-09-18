@@ -88,6 +88,7 @@ class PositionManager:
         target_price: float,
         setup_type: str,
         setup_score: float,
+        score_components: Optional[dict] = None,
     ) -> Position:
         if self.has_open_position(ticker) and not self.pyramiding:
             raise InvalidTransition(f"{ticker}: position already open, pyramiding disabled")
@@ -106,6 +107,7 @@ class PositionManager:
             current_target=target_price,
             setup_type=setup_type,
             setup_score=setup_score,
+            score_components=score_components,
         )
         self._positions[ticker] = position
         self._pending_orders[ticker] = False
@@ -202,6 +204,7 @@ class PositionManager:
             initial_target=position.initial_target,
             setup_score=position.setup_score,
             setup_type=position.setup_type,
+            score_components=position.score_components,
             overnight_yes_no=overnight,
         )
         trade.maximum_favorable_excursion = position.maximum_favorable_excursion

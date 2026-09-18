@@ -101,6 +101,7 @@ class Trade:
     benchmark_return_during_trade: Optional[float] = None
 
     setup_score: Optional[float] = None
+    score_components: Optional[dict] = None
     setup_type: Optional[str] = None
     overnight_yes_no: bool = False
 

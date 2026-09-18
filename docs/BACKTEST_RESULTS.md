@@ -1299,3 +1299,95 @@ every day (11.9 vs 9.7).
 The filter lives in `src/data/market_regime.py` behind `--regime-filter`, backtest
 only. It is deliberately NOT wired into the live path, which would require adding
 DIA to the live data feed -- not worth building for a rejected hypothesis.
+
+## Rebuilding the setup score: the components carry no outcome information
+
+Trades now journal their per-component score breakdown (`score_components`), so the
+question "which components predict?" can be asked directly. Verified inert: both
+periods reproduce their previous net to the cent.
+
+### 39 of the 100 points are literally constant
+
+| component | weight | std dev | % at mode | verdict |
+|---|---|---|---|---|
+| opening_range_structure | 15 | **0.000** | 100% | dead -- credited iff a setup matched, and every entry matched one |
+| pullback_quality | 10 | **0.000** | 100% | dead -- `pullback_shallow=True` is hardcoded at the call site |
+| risk_reward | 10 | 0.059 | 100% | dead -- 975 of 976 trades score exactly 10.0 |
+| spread_liquidity | 4 | **0.000** | 100% | dead IN BACKTEST ONLY (see caveat below) |
+| price_vs_vwap | 10 | 2.118 | 53% | live, 5.5% of score variance |
+| sector_strength | 5 | 1.204 | 64% | live but **identical to benchmark_strength** |
+| ema_alignment | 10 | 4.230 | 62% | live, 26.6% |
+| relative_volume | 15 | 4.979 | 33% | live, 23.6% |
+| benchmark_strength | 20 | 4.815 | 64% | live, 35.4% |
+
+`sector_strength` is assigned `bench_strength_frac` -- the same number
+`benchmark_strength` uses. It is not a second opinion, it is the first one counted
+twice, which makes the benchmark's true weight 25 and 44.3% of all score variance.
+
+Because 39 points are constant, `minimum_entry_score: 70` really means "score 31 of
+the 61 points that can move". The observed range is 70.0-98.5: the gate binds
+exactly at its floor.
+
+### No component predicts, and none replicates
+
+Spearman rank correlation against realised R:
+
+| component | holdout | tuning | replicates? |
+|---|---|---|---|
+| benchmark_strength | +0.0599 (t=+1.87) | +0.0006 (t=+0.01) | no |
+| relative_volume | +0.0281 (t=+0.88) | +0.0441 (t=+1.03) | no |
+| price_vs_vwap | +0.0440 (t=+1.37) | +0.0523 (t=+1.23) | no |
+| ema_alignment | +0.1212 (t=+3.81) | +0.0400 (t=+0.94) | **no** |
+
+`ema_alignment` is the only one that clears significance anywhere, and it collapses
+on the other period. The component carrying the most weight predicts the least.
+
+A caution recorded because it nearly fooled this analysis: `risk_reward` first
+appeared to be a strong predictor (+0.206 vs R, +0.506 vs win/loss, t=+18). It is
+an artifact -- 975 of 976 trades share one value, so the rank correlation is
+decided by a single trade. Always check variance before believing a correlation.
+
+### The rebuild fails out of sample, decisively
+
+Ordinary least squares of realised R on the four live components, **fit on the
+tuning period only**, then applied to the holdout:
+
+| | fitted weight |
+|---|---|
+| benchmark_strength | **-0.5165** |
+| relative_volume | +0.2287 |
+| price_vs_vwap | -0.0561 |
+| ema_alignment | **-0.3536** |
+
+| | rank correlation with R | drop worst 10% | 20% | 30% | 40% |
+|---|---|---|---|---|---|
+| tuning (in-sample) | +0.0995 (t=+2.34) | -$812 | +$1,051 | +$963 | -$3,606 |
+| **holdout (out-of-sample)** | **-0.0085 (t=-0.26)** | **-$4,864** | **-$10,176** | **-$13,229** | **-$13,698** |
+
+The fit looks mildly useful in-sample and is worth exactly nothing out of sample:
+zero rank correlation, and using it to discard the "worst" trades destroys up to
+$13,698. The fitted weights are themselves a tell -- the two components with any
+positive holdout correlation come out NEGATIVE, which is what fitting noise looks
+like.
+
+### Conclusion, and the one thing the backtest cannot answer
+
+The setup score cannot be rebuilt by reweighting these nine components, because
+the components do not contain information about the outcome. This is not a
+calibration problem. Nothing is shipped.
+
+That also closes out the "trade less" thesis properly: there is no ranking
+available from this feature set with which to trade less INTELLIGENTLY, and
+trading less at random costs money in proportion.
+
+**The caveat worth keeping:** `spread_liquidity` is dead in the backtest only,
+because `scripts/backtest.py` synthesizes bid/ask from each ticker's configured
+`max_spread_pct`, so every trade scores an identical 3.5. Live, it would vary. The
+backtest is structurally unable to evaluate the one component that speaks to
+execution cost -- which, given that transaction costs turned out to dominate this
+strategy's economics, is the component most worth being able to test. Doing so
+needs real historical quote data, which the project does not have.
+
+If the score is to be worth anything, it needs NEW features with genuine predictive
+content, validated across both periods before being weighted. Reweighting what is
+already there has now been tested and does not work.
