@@ -172,6 +172,20 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--spread-ticks", type=float, default=None,
+        help="EXPERIMENT override: assumed quoted spread in CENTS. 1.0 (the shipped "
+             "default) is the tightest a US equity quote can legally be and so is a "
+             "floor on real cost; 0 restores the old frictionless backtest.",
+    )
+    parser.add_argument(
+        "--impact-bps", type=float, default=None,
+        help="EXPERIMENT override: market impact in bps per side on notional.",
+    )
+    parser.add_argument(
+        "--commission", type=float, default=None,
+        help="EXPERIMENT override: commission per order in dollars.",
+    )
+    parser.add_argument(
         "--min-stop-pct", type=float, default=None,
         help="EXPERIMENT override: floor the stop at this %% of entry price (in-memory "
              "only). Proxy for sizing stops off DAILY volatility rather than the "
@@ -290,6 +304,7 @@ def main() -> int:
         args.no_chase_rule, args.chase_max_atr_above_vwap is not None,
         args.starting_equity is not None, args.min_relative_volume is not None,
         args.min_stop_pct is not None,
+        args.spread_ticks is not None, args.impact_bps is not None, args.commission is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -341,6 +356,12 @@ def main() -> int:
         if args.partial_exit_trigger_r is not None:
             config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
             print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
+        for flag, key in (("spread_ticks", "spread_ticks"), ("impact_bps", "impact_bps"),
+                          ("commission", "commission_per_order")):
+            value = getattr(args, flag)
+            if value is not None:
+                config.risk.setdefault("transaction_costs", {})[key] = value
+                print(f"  transaction_costs.{key} = {value}")
         if args.min_stop_pct is not None:
             config.risk["stops"]["min_stop_pct_of_price"] = args.min_stop_pct
             print(f"  stops.min_stop_pct_of_price = {args.min_stop_pct}")

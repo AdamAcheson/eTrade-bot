@@ -74,3 +74,23 @@ overnight:
 emergency:
   kill_switch_enabled: true
   kill_switch_file: "logs/KILL_SWITCH"
+
+# --- transaction costs -------------------------------------------------------
+# Modelled per SHARE, not in basis points, because the binding constraint is the
+# one-cent minimum tick: crossing a penny-wide market costs half a cent per share
+# whatever the price, which is 0.5 bps on a $95 stock and 12 bps on a $4 one. Over
+# half this strategy's traded notional sits in sub-$10 miners.
+#
+# These defaults are a FLOOR on real cost, not an estimate of it:
+#   spread_ticks 1.0 is the tightest a US equity quote can legally be
+#   impact_bps 0.0 assumes a $25k order moves the book not at all
+#   commission 0.0 is correct for E*TRADE on US equities
+# See docs/BACKTEST_RESULTS.md -- even at this floor the strategy's edge is thin.
+transaction_costs:
+  spread_ticks: 1.0
+  impact_bps: 0.0
+  commission_per_order: 0.0
+  # 1.0 = every fill crosses the spread. Exits always do (submit_exit_order sends
+  # a marketable limit); assuming entries rest passively without adverse selection
+  # would be optimistic for a momentum strategy, so this stays at 1.0.
+  crossing_fraction: 1.0

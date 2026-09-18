@@ -1,5 +1,13 @@
 # Backtest results
 
+> **READ THIS FIRST.** Every section below dated before "Modelling transaction
+> costs" was produced by a backtest that filled at bar prices with NO commission
+> and NO slippage (`gross_profit == net_profit` on every trade). Those numbers
+> remain valid as COMPARISONS BETWEEN CONFIGURATIONS -- both sides paid nothing --
+> and must not be read as returns. The strategy turns ~$92M of notional on $100k
+> of equity over the holdout; costs are not a rounding error on that, they are the
+> dominant term. See the final section for the re-run with costs modelled.
+
 Numbers here come from `scripts/backtest.py` against the cached 5-minute bars in
 `data_cache/historical/`. Journals are gitignored, so this file is the record.
 
@@ -924,3 +932,99 @@ The obvious directions, none of them tested yet:
    instead of 12 -- SCCO and SIL clear their floor comfortably.
 3. Trade less. 1,989 round trips for $90k is a thin margin per trade; a higher
    score threshold would cut notional faster than it cuts profit.
+
+## Modelling transaction costs, and re-running everything
+
+`src/execution/costs.py` now prices every fill and `PositionManager` charges it on
+close, so `gross_profit - net_profit` is a real cost. Costs are modelled per SHARE,
+not in basis points, because the binding constraint is the one-cent minimum tick:
+crossing a penny-wide market costs half a cent per share whatever the price, which
+is 0.5 bps on a $95 stock and 12 bps on a $4 one.
+
+Shipped settings are a FLOOR on real cost, not an estimate:
+`spread_ticks: 1.0` (tightest a US quote can legally be), `impact_bps: 0.0` (a $25k
+order moves the book not at all), `commission_per_order: 0.0` (true at E*TRADE).
+Real costs can only be higher.
+
+### Holdout, 568 days, costs on
+
+| floor | trades | gross | cost | **net** | max DD | ret/DD | >3R | >5R |
+|---|---|---|---|---|---|---|---|---|
+| none | 1,945 | $72,161 | $61,649 | **$10,512** | 13.85% | 0.8 | 131 | 39 |
+| **0.5%** | 1,956 | $85,593 | $65,233 | **$20,360** | 11.88% | **1.7** | 125 | 36 |
+| 1.0% | 1,878 | $81,478 | $65,056 | **$16,422** | 14.61% | 1.1 | 43 | 1 |
+| 1.5% | 1,744 | $85,315 | $62,473 | **$22,843** | 28.34% | 0.8 | 8 | 0 |
+
+### Tuning, 193 days, costs on
+
+| floor | trades | gross | cost | **net** | max DD | ret/DD | >3R | >5R |
+|---|---|---|---|---|---|---|---|---|
+| none | 624 | $35,973 | $10,064 | **$25,910** | 5.64% | 4.6 | 47 | 20 |
+| **0.5%** | 614 | $38,496 | $10,052 | **$28,444** | 5.77% | **4.9** | 48 | 17 |
+| 1.0% | 608 | $43,335 | $10,021 | **$33,314** | 7.95% | 4.2 | 27 | 0 |
+
+**Costs consume 85% of gross profit on the holdout** ($61.6k of $72.2k with no
+floor). The stop floor survives this and matters MORE than it did for free: it
+roughly doubles holdout net, because a wider stop means fewer noise stop-outs,
+fewer round trips, and less spread paid. 0.5% has the best return/drawdown in BOTH
+periods, so the adopted value stands. 1.5% posts the highest holdout net but a
+28.34% drawdown with zero >5R trades -- it is a different, worse strategy that
+happens to print a number.
+
+Significance weakens once costs are real: holdout none -> 0.5% is t=+1.73,
+P(<=0)=0.052, against t=+2.36 and P=0.009 for free. Marginal, not significant.
+
+### Versus SPY, the honest version
+
+| holdout 2023-09 -> 2025-12 | return | CAGR | max DD | Sharpe |
+|---|---|---|---|---|
+| bot, costs on | 20.5% | 8.6% | 11.88% | 0.92 |
+| SPY buy & hold | **56.5%** | **22.0%** | 18.76% | **1.32** |
+
+| tuning 2025-12 -> 2026-09 | return | CAGR | max DD | Sharpe |
+|---|---|---|---|---|
+| bot, costs on | **28.4%** | **38.7%** | **5.77%** | **2.87** |
+| SPY buy & hold | 11.8% | 15.7% | 8.88% | 1.19 |
+
+**On the holdout the bot loses decisively to buying SPY and holding it** -- less
+than half the return, lower Sharpe, for 1,956 round trips and daily babysitting.
+On the tuning period it wins clearly. The periods disagree completely, and the
+reason is not the strategy.
+
+### Why the periods disagree: the universe got more expensive
+
+| | notional-weighted avg price | sub-$10 notional | cost |
+|---|---|---|---|
+| holdout | $19.27 | 57% | 7.3 bps/side |
+| tuning | $38.05 | 15% | 3.3 bps/side |
+
+The same names, in the two windows:
+
+| ticker | holdout | tuning | change |
+|---|---|---|---|
+| HL | $6.71 | $19.39 | +189% |
+| AG | $7.49 | $20.98 | +180% |
+| SVM | $4.07 | $10.70 | +163% |
+| SIL | $39.46 | $98.78 | +150% |
+| EXK | $4.37 | $10.84 | +148% |
+
+The metals rally roughly doubled to tripled this universe. A penny tick on a $4
+stock is 12 bps; on a $12 stock it is 4. **The strategy's cost burden halved for
+reasons that have nothing to do with the strategy.** The tuning period is not
+evidence that the bot got better -- it is substantially evidence that its universe
+got more expensive.
+
+Forward-looking, prices today resemble the tuning period, so the ~3.3 bps regime is
+the relevant one for live trading. That is contingent: a metals selloff that halves
+these names restores the holdout's cost structure, in which the strategy does not
+beat SPY.
+
+### What this changes
+
+1. The stop floor at 0.5% is confirmed, and for a second independent reason.
+2. No figure in this file above the banner is a return.
+3. The strategy is viable only while its universe stays expensive. Screening the
+   universe on PRICE (or on spread as a fraction of price) is now the single
+   highest-value untested change -- SCCO at $94 pays 0.5 bps, SVM at $4 pays 12.
+4. Trade frequency is the other lever. 1,956 round trips to net $20k on the holdout
+   is $10 a trade against a $33 average cost.

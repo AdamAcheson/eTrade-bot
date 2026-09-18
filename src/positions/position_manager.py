@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from execution.costs import TransactionCostModel
 from models.position import Position
 from models.trade import ALLOWED_TRANSITIONS, ExitReason, Trade, TradeState
 
@@ -27,9 +28,13 @@ class ManagementAction:
 
 
 class PositionManager:
-    def __init__(self, max_concurrent_positions: int, pyramiding: bool = False) -> None:
+    def __init__(self, max_concurrent_positions: int, pyramiding: bool = False,
+                 cost_model: Optional[TransactionCostModel] = None) -> None:
         self.max_concurrent_positions = max_concurrent_positions
         self.pyramiding = pyramiding
+        # Defaults to a zero-cost model so an omitted argument reproduces the old
+        # frictionless behaviour exactly rather than silently changing P&L.
+        self.cost_model = cost_model or TransactionCostModel()
         self._states: Dict[str, TradeState] = {}
         self._positions: Dict[str, Position] = {}
         self._pending_orders: Dict[str, bool] = {}
@@ -201,7 +206,13 @@ class PositionManager:
         )
         trade.maximum_favorable_excursion = position.maximum_favorable_excursion
         trade.maximum_adverse_excursion = position.maximum_adverse_excursion
-        trade.close(exit_time, exit_price, exit_reason, benchmark_return=benchmark_return)
+        trade.close(
+            exit_time, exit_price, exit_reason,
+            commission=self.cost_model.round_trip(
+                position.entry_price, exit_price, position.original_shares
+            ),
+            benchmark_return=benchmark_return,
+        )
 
         self.transition(ticker, TradeState.CLOSED)
         self.transition(ticker, TradeState.WATCHING)

@@ -35,6 +35,7 @@ from config_loader import AppConfig, load_config
 from data.etrade_market_data import ETradeMarketDataProvider
 from data.indicators import IndicatorSnapshot, compute_snapshot
 from data.market_data import InMemoryMarketDataProvider, MarketDataProvider
+from execution.costs import TransactionCostModel
 from execution.order_manager import OrderManager
 from models.bar import Bar
 from models.signal import Decision
@@ -172,6 +173,7 @@ class TradingBot:
         self.position_manager = PositionManager(
             max_concurrent_positions=config.risk["behavior"]["max_concurrent_positions"],
             pyramiding=config.risk["behavior"]["pyramiding"],
+            cost_model=TransactionCostModel.from_config(config.risk),
         )
         self.order_manager = OrderManager(broker, self.position_manager)
         self.schedule_windows = build_schedule_windows(config.schedule)
