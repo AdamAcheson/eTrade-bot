@@ -131,3 +131,27 @@ def test_approved_universe_excludes_strategy_excluded_tickers(tmp_path):
     config = load_config(str(tmp_path))
     assert "AQN" not in config.approved_universe()
     assert "AG" in config.approved_universe()
+
+
+def test_shipped_stop_floor_is_half_a_percent():
+    """Pins the shipped value. The floor was adopted on a holdout result that was
+    significant (paired t=+2.36) while 1.0% and above destroyed the runner tail
+    (>5R trades 41 -> 1 -> 0) and 2.0% took drawdown to 17%. The usable band is
+    narrow, so a drive-by change to this number is a real risk and should have to
+    break a test."""
+    config = load_config()
+    assert config.risk["stops"]["min_stop_pct_of_price"] == 0.5
+
+
+def test_shipped_floor_actually_reaches_the_stop_calculation():
+    """The floor is only worth anything if the signal engine reads it, so assert on
+    a stop the 5-minute ATR would otherwise place inside the noise band rather than
+    on the config value alone."""
+    from risk.position_sizing import final_stop_price
+    config = load_config()
+    pct = config.risk["stops"]["min_stop_pct_of_price"]
+    entry = 20.125
+    # CDE's actual 2026-09-17 ATR, which on its own gives a 0.22% stop
+    stop = final_stop_price(entry, atr_value=0.0526, atr_multiplier=0.85,
+                            swing_low=None, min_stop_distance=entry * pct / 100.0)
+    assert (entry - stop) / entry >= 0.005 - 1e-9

@@ -807,3 +807,35 @@ anyone watching daily P&L will feel it before the tail pays.
 
 NOT adopted unilaterally. It costs drawdown in both periods, it makes the median
 day worse, and one of the two periods is not significant.
+
+### ADOPTED: min_stop_pct_of_price = 0.5
+
+Set in `config/risk.yaml` and re-verified with NO override flags, so both runs
+exercise the shipped config path end to end. Both periods reproduced the flag-run
+net P&L to the cent, which is the check that the config actually reaches the stop
+calculation rather than only the `--min-stop-pct` path.
+
+| period | net before | net after | change | max DD | paired t | P(<=0) |
+|---|---|---|---|---|---|---|
+| holdout (568d) | $77,347 | **$90,543** | +17.1% | 4.93% -> 5.29% | +2.36 | **0.009** |
+| tuning (193d) | $36,198 | **$38,648** | +6.8% | 5.61% -> 6.00% | +1.07 | 0.103 |
+
+Runner tail survives, which is what 1.0% and above failed:
+
+| | >3R | >5R | mean R |
+|---|---|---|---|
+| holdout | 140 -> 129 | 41 -> 37 | +0.321 -> +0.286 |
+| tuning | 47 -> **48** | 20 -> 17 | +0.361 -> +0.347 |
+
+Known costs, accepted deliberately:
+- Drawdown is ~0.4pp worse in both periods.
+- The MEDIAN DAY IS WORSE in both periods (193 better / 289 worse, and 40/79).
+  All of the gain is in the right tail. Expect more small red days than before;
+  the payback arrives in the rare large winners.
+- Mean R per trade drops slightly. Dollars rise anyway because a floored stop
+  lets more of the risk budget be deployed -- with a 0.22% stop, risk-based sizing
+  hits the position cap and the trade carries less than its intended risk.
+- The tuning period is not significant on its own (P = 0.103).
+
+The usable band is narrow -- 1.0% cuts >5R trades from 41 to 1, and 2.0% takes
+drawdown to 17% -- so `test_shipped_stop_floor_is_half_a_percent` pins the value.

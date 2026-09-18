@@ -18,6 +18,16 @@ stops:
     low_volatility_diversified: 0.75
     normal: 0.85
     high_volatility_speculative: 0.95
+  # Floor on stop distance, as a percent of entry price. ATR here is a 14-period
+  # average of FIVE-MINUTE bars, so it measures roughly the last 70 minutes and
+  # collapses in a quiet afternoon -- without a floor it can place a stop inside
+  # the instrument's ordinary noise band (0.22% of price on CDE, 2026-09-17,
+  # against a 5.09% median daily range). Applied as a third candidate beside the
+  # ATR and structure stops, widest wins, so it never tightens a stop.
+  # 0.5 is roughly 0.1x daily ATR for this universe. See docs/BACKTEST_RESULTS.md:
+  # raises holdout net 17% with the runner tail intact, at the cost of a slightly
+  # worse median day and ~0.4pp more drawdown.
+  min_stop_pct_of_price: 0.5
 
 safety:
   # Raised from 3 alongside max_concurrent_positions below. Counterintuitively this
