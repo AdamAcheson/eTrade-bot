@@ -1204,3 +1204,98 @@ stock's own open versus its prior close, which is what the (rejected) experiment
 above used and which has the full 761-day history. Yahoo serves only ~60 days of
 5-minute SI=F, and Twelve Data cannot fill the gap on the current plan (XAG/USD
 needs a paid tier; the bare symbol SI is an unrelated NYSE listing).
+
+## Trading less: raising the score threshold, and a market regime filter
+
+Both tested on the holdout with costs modelled and the shipped config. Both
+rejected, and the first produced the more important finding.
+
+### A. Raising the minimum entry score makes it monotonically worse
+
+`--score-bump` adds points to both entry-score windows, preserving their 10-point gap.
+
+| bump | trades | net | max DD | ret/DD |
+|---|---|---|---|---|
+| **+0 (shipped)** | 976 | **$38,446** | 3.23% | **11.9** |
+| +5 | 859 | $35,253 | 3.59% | 9.8 |
+| +10 | 642 | $25,665 | 2.94% | 8.7 |
+| +15 | 470 | $19,822 | 1.78% | 11.1 |
+
+Net falls monotonically and return/drawdown is worse at every level.
+
+### Why: THE SETUP SCORE DOES NOT PREDICT ANYTHING
+
+| score | trades | net | $/trade | win rate | mean R |
+|---|---|---|---|---|---|
+| 70-74 | 120 | $5,616 | **$46.80** | 48% | 0.315 |
+| 75-79 | 127 | $5,333 | $41.99 | 47% | 0.257 |
+| 80-84 | 195 | $5,191 | $26.62 | 51% | 0.283 |
+| 85-89 | 281 | $6,230 | $22.17 | 48% | 0.232 |
+| 90-94 | 129 | $12,726 | $98.65 | 48% | 0.502 |
+| 95-99 | 124 | $3,350 | **$27.02** | 49% | 0.233 |
+
+**Spearman rank correlation between setup score and realised R: +0.0021** across
+976 trades. That is zero. The lowest-scoring bucket out-earns the highest per
+trade, win rate is ~48% in every bucket, and the ordering is not monotonic in
+anything.
+
+So raising the threshold removes trades essentially AT RANDOM. Since the average
+trade is profitable, removing random trades removes profit roughly in proportion --
+which is exactly the shape of the table above.
+
+This also retires the "trade less" thesis in its original form. That idea came from
+the cost analysis, when the holdout was paying $65,233 in spread on 1,956 trades.
+The price screen already solved that, and did it SELECTIVELY -- it cut trade count
+to 976 and cost to $10,727 by removing the trades that could not pay their own
+spread. What remains all pays its way. Cutting further by score just cuts profit.
+
+The real lead here is not the threshold but the score itself: six weighted
+components (benchmark_strength 20, relative_volume 15, pullback_quality 10,
+risk_reward 10, spread_liquidity 5, sector_strength 5) that jointly explain nothing
+about the outcome. A score that ranked trades even weakly would be worth far more
+than any threshold on the current one.
+
+### B. Market regime filter: trade only when DIA and SLV are rising
+
+A literal reading -- "days both closed up" -- is unusable: today's close is not
+known when the trade is placed, and backtesting it would be pure lookahead. Two
+modes that ARE decidable before the first entry window:
+
+* `prior_day` -- both closed up YESTERDAY (known overnight)
+* `open_gap` -- both OPENED above their previous close (known at 09:30)
+
+| filter | days traded | net | net/day | max DD | ret/DD |
+|---|---|---|---|---|---|
+| none | 568 | **$38,446** | $67.69 | 3.23% | **11.9** |
+| prior_day | 181 (32%) | $15,912 | **$87.91** | 1.64% | 9.7 |
+| open_gap | 187 (33%) | $8,560 | $45.78 | 2.81% | 3.1 |
+
+The clean test, splitting the SHIPPED run's own daily P&L so nothing is confounded
+by different equity paths:
+
+| period | mode | qualifying | non-qualifying | difference | t |
+|---|---|---|---|---|---|
+| holdout | prior_day | $+99.91/day | $+53.07/day | +$46.84 | +1.11 |
+| holdout | open_gap | $+55.43/day | $+74.09/day | -$18.66 | -0.50 |
+| tuning | prior_day | $+225.60/day | $+111.59/day | +$114.01 | +1.03 |
+| tuning | open_gap | $+51.44/day | $+213.88/day | -$162.44 | -1.72 |
+
+`open_gap` is NEGATIVE in both periods -- days that gap up are worse than days that
+do not. `prior_day` is positive in both, with a consistent sign, but reaches
+significance in neither (t = 1.11 and 1.03).
+
+Neither is adopted. `prior_day` is the only one with a defensible direction, and
+even taking its per-day edge at face value, it forgoes $20,590 on the holdout to
+capture $17,984: you sit out two thirds of the days to earn a per-day premium that
+does not cover the lost days. Matching the unfiltered total would need roughly 2.4x
+the risk per trading day, which multiplies drawdown to get back to where you
+started.
+
+Worth noting what IS real: `prior_day` cuts holdout drawdown from 3.23% to 1.64%.
+If the goal were the smoothest possible equity curve rather than the most money,
+it would deserve another look. Return per unit of drawdown still favours trading
+every day (11.9 vs 9.7).
+
+The filter lives in `src/data/market_regime.py` behind `--regime-filter`, backtest
+only. It is deliberately NOT wired into the live path, which would require adding
+DIA to the live data feed -- not worth building for a rejected hypothesis.

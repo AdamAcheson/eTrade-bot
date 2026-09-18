@@ -172,6 +172,23 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--score-bump", type=float, default=None,
+        help="EXPERIMENT override: add this many points to BOTH minimum entry score "
+             "windows, preserving the 10-point primary/midday gap. Trades less, and "
+             "each avoided trade saves its spread as well as its risk.",
+    )
+    parser.add_argument(
+        "--regime-filter", choices=("prior_day", "open_gap"), default=None,
+        help="EXPERIMENT override: only trade days when every --regime-symbol was "
+             "rising. prior_day = all closed up YESTERDAY; open_gap = all opened "
+             "above their previous close TODAY. Both are decidable before the first "
+             "entry window, so neither peeks at the session's outcome.",
+    )
+    parser.add_argument(
+        "--regime-symbols", default="DIA,SLV",
+        help="Comma-separated reference instruments for --regime-filter.",
+    )
+    parser.add_argument(
         "--gap-day-pct", type=float, default=None,
         help="EXPERIMENT override: treat a session as a GAP DAY when |open vs prior "
              "close| is at least this percent, and apply --gap-day-rvol in place of "
@@ -324,6 +341,7 @@ def main() -> int:
         args.spread_ticks is not None, args.impact_bps is not None, args.commission is not None,
         args.min_price is not None,
         args.gap_day_pct is not None, args.gap_day_rvol is not None,
+        args.score_bump is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -375,6 +393,11 @@ def main() -> int:
         if args.partial_exit_trigger_r is not None:
             config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
             print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
+        if args.score_bump is not None:
+            mes = config.strategy["scoring"]["minimum_entry_score"]
+            for key in ("primary_window", "midday_window"):
+                mes[key] = mes[key] + args.score_bump
+            print(f"  scoring.minimum_entry_score = {mes}")
         if args.gap_day_pct is not None or args.gap_day_rvol is not None:
             gd = config.strategy["eligibility"].setdefault("gap_day", {})
             if args.gap_day_pct is not None:
@@ -457,6 +480,17 @@ def main() -> int:
         all_days = all_days[-args.days:]
     elif args.first_days:
         all_days = all_days[:args.first_days]
+    if args.regime_filter:
+        from data.market_regime import qualifying_days
+        symbols = [s.strip() for s in args.regime_symbols.split(",") if s.strip()]
+        good = qualifying_days(symbols, args.regime_filter)
+        before = len(all_days)
+        all_days = [d for d in all_days if d in good]
+        if not all_days:
+            print("regime filter removed every day", file=sys.stderr)
+            return 1
+        print(f"  regime filter {args.regime_filter} on {','.join(symbols)}: "
+              f"{len(all_days)}/{before} days kept ({len(all_days)/before:.0%})")
     print(f"Backtesting {len(all_days)} trading days: {all_days[0]} to {all_days[-1]}")
 
     baselines_by_symbol = {s: build_volume_baselines(days_by_symbol[s]) for s in all_symbols}
