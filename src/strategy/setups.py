@@ -24,6 +24,8 @@ def basic_eligibility(
     min_liquidity_volume: float = 0.0,
     require_ema_alignment: bool = True,
     min_price: float = 0.0,
+    gap_day_min_gap_pct: float = 0.0,
+    gap_day_min_relative_volume: Optional[float] = None,
 ) -> EligibilityResult:
     """require_ema_alignment gates the STOCK's own price against its 9EMA -- separate
     from benchmark_confirmation's require_ema_alignment, which gates the benchmark.
@@ -41,7 +43,21 @@ def basic_eligibility(
     if require_ema_alignment and not (snapshot.last_price > snapshot.ema_9):
         return EligibilityResult(False, "REJECTED_EMA_ALIGNMENT")
 
-    if snapshot.relative_volume is None or snapshot.relative_volume < min_relative_volume:
+    # Gap-conditioned volume threshold. relative_volume measures today's cumulative
+    # volume against the same clock time on an AVERAGE day. After a large overnight
+    # gap that comparison is unfair in a specific direction: the move already
+    # happened while the market was shut, so the session opens with the repricing
+    # done and trades quietly for the rest of the day. On 2026-09-17 SVM gapped
+    # +5.19% and then drifted +3.53% intraday on RVOL that decayed from 0.77 to
+    # 0.36 -- never close to the 1.10 gate, despite finishing up 8.91%.
+    effective_min_rvol = min_relative_volume
+    if (gap_day_min_gap_pct
+            and gap_day_min_relative_volume is not None
+            and snapshot.overnight_gap_pct is not None
+            and abs(snapshot.overnight_gap_pct) >= gap_day_min_gap_pct):
+        effective_min_rvol = gap_day_min_relative_volume
+
+    if snapshot.relative_volume is None or snapshot.relative_volume < effective_min_rvol:
         return EligibilityResult(False, "REJECTED_LOW_VOLUME")
 
     spread_pct = snapshot.spread_pct

@@ -26,6 +26,17 @@ eligibility:
   # leaves more headroom if real spreads exceed the one-cent floor the cost model
   # assumes -- which they do on the cheaper names.
   min_price: 10.0
+  # Gap-conditioned volume threshold. relative_volume compares today's cumulative
+  # volume to the same clock time on an AVERAGE day, which is unfair in one
+  # specific direction: after a large overnight gap the repricing already happened
+  # while the market was shut, so the session opens with the work done and trades
+  # quietly. On 2026-09-17 SVM gapped +5.19% and drifted +3.53% intraday on RVOL
+  # that decayed 0.77 -> 0.36, never near the 1.10 gate, while closing +8.91%.
+  # When |open vs prior close| >= min_gap_pct, min_relative_volume below is used in
+  # place of the standard one. min_gap_pct 0 disables the whole mechanism.
+  gap_day:
+    min_gap_pct: 0.0
+    min_relative_volume: 0.70
   # Stock's own price must be above its 9EMA to enter. Separate from
   # benchmark_confirmation.require_ema_alignment below (that one gates the
   # benchmark, this one gates the stock) -- previously this side had no config

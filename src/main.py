@@ -213,6 +213,9 @@ class TradingBot:
         # data/etrade_market_data.py) the latest bar can be up to one bar-interval
         # stale, but the quote itself is refreshed every poll.
         snapshot.last_price = state.quote.last
+        prior_close = _prior_session_close(state.bars, now)
+        if prior_close:
+            snapshot.overnight_gap_pct = (today_bars[0].open - prior_close) / prior_close * 100.0
         return snapshot
 
     def evaluate_and_maybe_enter(self, ticker: str, now: datetime) -> None:

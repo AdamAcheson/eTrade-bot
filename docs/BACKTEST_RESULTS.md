@@ -1129,3 +1129,78 @@ trading rather than about what to trade.
 The honest caveat remains that the holdout still returns less than SPY over the
 same window (39.7% at the $5 screen, 38.4k/38.4% at $10, against SPY's 56.5%),
 while beating it substantially on every risk-adjusted measure.
+
+## Gap-conditioned volume baseline: hypothesis refuted
+
+Prompted by 2026-09-17, where SVM closed +8.91% and VZLA +8.67% and the bot took
+neither. Decomposing those days showed most of the move happened before the bell:
+
+| | prev close -> open -> close | total | overnight gap | intraday |
+|---|---|---|---|---|
+| SVM | 11.17 -> 11.75 -> 12.16 | +8.91% | **+5.19%** | +3.53% |
+| VZLA | 3.69 -> 3.85 -> 4.01 | +8.67% | **+4.34%** | +4.16% |
+| CDE | 19.00 -> 19.75 -> 20.00 | +5.24% | +3.95% | +1.24% |
+
+The bot is flat overnight, so half to three-quarters of those moves were never
+available to it. The intraday remainder was refused on volume: SVM's RVOL decayed
+0.77 -> 0.36 against a 1.10 gate.
+
+The hypothesis: RVOL compares today's cumulative volume to the same clock time on
+an AVERAGE day, and that comparison is structurally unfair after a gap, because the
+repricing already happened while the market was shut. So `eligibility.gap_day`
+applies a relaxed RVOL threshold when |open vs prior close| clears a bar.
+
+### It is worse in every configuration tested
+
+| period | shipped | gap 3.0 / rvol 0.70 | gap 3.0 / rvol 0.50 | gap 2.0 / rvol 0.70 |
+|---|---|---|---|---|
+| holdout | **$38,446** | $33,549 | $33,189 | $34,025 |
+| tuning | **$29,746** | $28,886 | $28,456 | - |
+
+### Why: low volume on a gap day is real information, not an artifact
+
+Isolating the trades the relaxation ADDS on the holdout:
+
+| cohort | trades | net | win rate | mean R | >3R |
+|---|---|---|---|---|---|
+| shipped baseline | 976 | $38,446 | 49% | +0.291 | 62 |
+| **trades added by the relaxation** | **35** | **-$3,395** | **26%** | **-0.472** | **0** |
+| trades present in both | 971 | $36,943 | 49% | +0.294 | 62 |
+| trades displaced | 5 | -$292 | 40% | -0.270 | 0 |
+
+The added cohort is not marginally worse, it is a losing population: a 26% win
+rate against 49%, mean R of -0.472, NOT ONE trade above +3R, and 25 of 35 exiting
+on a stop. Day-level, 21 of 29 affected days are negative.
+
+The premise was wrong. A stock that gaps up and then trades on light volume is not
+a good setup whose volume reads low for technical reasons -- it is a move nobody is
+confirming, and momentum entries into it get stopped out. The RVOL gate was
+already doing exactly the job it exists to do.
+
+Note the second-order cost: the shared 971 trades earn $36,943 in the
+gap-conditioned run against $38,446 shipped, because the extra trades consume risk
+budget and position slots that the better trades would otherwise have used. A bad
+filter costs more than the bad trades it admits.
+
+SVM on 2026-09-17 was therefore a correct refusal that happened to be wrong on the
+day. The gate is right on average, which is the only sense in which a gate can be
+right.
+
+`eligibility.gap_day.min_gap_pct` ships at 0.0 (disabled). The mechanism is kept,
+tested and off, so the question does not have to be re-litigated from scratch.
+
+### SI=F is cached, and the backtest does not need it
+
+`scripts/fetch_reference_data.py` caches COMEX silver futures to
+`data_cache/reference/` -- deliberately NOT `data_cache/historical/`, because that
+directory defines the backtest's trading-day universe and SI=F trades nearly 24
+hours including Sunday evenings, which would silently shift every backtest window.
+
+Overnight futures moves predict the next morning's SLV gap with 0.974 correlation
+over 22 days, and on 2026-09-17 futures were +3.52% overnight -- the gap was
+knowable at 9:29am. But that only matters for trading the gap, which this strategy
+does not do. By the time it evaluates anything, the gap is already visible in the
+stock's own open versus its prior close, which is what the (rejected) experiment
+above used and which has the full 761-day history. Yahoo serves only ~60 days of
+5-minute SI=F, and Twelve Data cannot fill the gap on the current plan (XAG/USD
+needs a paid tier; the bare symbol SI is an unrelated NYSE listing).

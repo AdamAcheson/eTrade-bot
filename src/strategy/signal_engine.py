@@ -95,6 +95,8 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
         max_spread_pct=ctx.max_spread_pct,
         min_relative_volume=strategy_config["eligibility"]["min_relative_volume"],
         min_price=strategy_config["eligibility"].get("min_price", 0.0),
+        gap_day_min_gap_pct=strategy_config["eligibility"].get("gap_day", {}).get("min_gap_pct", 0.0),
+        gap_day_min_relative_volume=strategy_config["eligibility"].get("gap_day", {}).get("min_relative_volume"),
         require_ema_alignment=strategy_config["eligibility"].get("require_ema_alignment", True),
     )
     if not elig.eligible:

@@ -172,6 +172,17 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--gap-day-pct", type=float, default=None,
+        help="EXPERIMENT override: treat a session as a GAP DAY when |open vs prior "
+             "close| is at least this percent, and apply --gap-day-rvol in place of "
+             "the standard relative-volume gate. 0 disables.",
+    )
+    parser.add_argument(
+        "--gap-day-rvol", type=float, default=None,
+        help="EXPERIMENT override: the relaxed relative-volume threshold used on gap "
+             "days (see --gap-day-pct).",
+    )
+    parser.add_argument(
         "--min-price", type=float, default=None,
         help="EXPERIMENT override: reject entries below this share price. A tick-cost "
              "screen -- the one-cent tick costs 12 bps on a $4 stock and 0.5 on a $95 "
@@ -312,6 +323,7 @@ def main() -> int:
         args.min_stop_pct is not None,
         args.spread_ticks is not None, args.impact_bps is not None, args.commission is not None,
         args.min_price is not None,
+        args.gap_day_pct is not None, args.gap_day_rvol is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -363,6 +375,13 @@ def main() -> int:
         if args.partial_exit_trigger_r is not None:
             config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
             print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
+        if args.gap_day_pct is not None or args.gap_day_rvol is not None:
+            gd = config.strategy["eligibility"].setdefault("gap_day", {})
+            if args.gap_day_pct is not None:
+                gd["min_gap_pct"] = args.gap_day_pct
+            if args.gap_day_rvol is not None:
+                gd["min_relative_volume"] = args.gap_day_rvol
+            print(f"  eligibility.gap_day = {gd}")
         if args.min_price is not None:
             config.strategy["eligibility"]["min_price"] = args.min_price
             print(f"  eligibility.min_price = {args.min_price}")

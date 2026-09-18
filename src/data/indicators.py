@@ -163,6 +163,13 @@ class IndicatorSnapshot:
     opening_range_low: Optional[float]
     swing_low: Optional[float]
     swing_high: Optional[float]
+    # Today's open versus the prior session's close, in percent. Not an indicator of
+    # the session so much as context FOR it: after a large gap the repricing has
+    # already happened before the bell, and the session that follows is typically
+    # quieter than a normal one at the same clock time. relative_volume compares
+    # against that normal day, so on a gap day it reads low for a structural reason
+    # rather than a lack of interest. None before a prior session exists.
+    overnight_gap_pct: Optional[float] = None
 
     @property
     def spread(self) -> float:
