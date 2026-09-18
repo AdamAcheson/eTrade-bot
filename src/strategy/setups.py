@@ -23,6 +23,7 @@ def basic_eligibility(
     min_relative_volume: float,
     min_liquidity_volume: float = 0.0,
     require_ema_alignment: bool = True,
+    min_price: float = 0.0,
 ) -> EligibilityResult:
     """require_ema_alignment gates the STOCK's own price against its 9EMA -- separate
     from benchmark_confirmation's require_ema_alignment, which gates the benchmark.
@@ -49,6 +50,14 @@ def basic_eligibility(
 
     if min_liquidity_volume and snapshot.volume < min_liquidity_volume:
         return EligibilityResult(False, "REJECTED_LOW_VOLUME")
+
+    # Tick-cost screen. The one-cent minimum tick is a FIXED cost per share, so its
+    # cost in basis points is inversely proportional to price: min_price 10 caps it
+    # at 5 bps per side, min_price 20 at 2.5. Backtests with costs modelled showed
+    # over half the holdout's traded notional sitting in sub-$10 names, where the
+    # tick alone consumed most of the edge.
+    if min_price and snapshot.last_price < min_price:
+        return EligibilityResult(False, "REJECTED_TICK_COST")
 
     return EligibilityResult(True, None)
 

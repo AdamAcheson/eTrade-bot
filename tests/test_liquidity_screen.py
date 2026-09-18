@@ -143,3 +143,4 @@ def test_enabled_names_all_pass_the_screen():
 
 def test_profile_returns_none_for_an_uncached_symbol():
     assert sl.profile("NOT_A_REAL_TICKER") is None
+

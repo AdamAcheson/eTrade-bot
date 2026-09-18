@@ -1028,3 +1028,74 @@ beat SPY.
    highest-value untested change -- SCCO at $94 pays 0.5 bps, SVM at $4 pays 12.
 4. Trade frequency is the other lever. 1,956 round trips to net $20k on the holdout
    is $10 a trade against a $33 average cost.
+
+## Screening the universe on price (tick-cost screen)
+
+`eligibility.min_price` rejects entries below a share price. This is a TRANSACTION
+COST screen, not a quality judgement: the one-cent minimum tick is a fixed cost per
+share, so the threshold maps directly to a cost ceiling -- $10 caps tick cost at 5
+bps per side, $20 at 2.5. It is deliberately separate from `max_spread_pct`, which
+asks whether a quote is unusually wide FOR THAT NAME; a $4 stock with a perfectly
+tight one-cent quote passes that gate and still cannot afford to be traded.
+
+The screen is evaluated per signal on the live price, so a name that rallies
+becomes eligible on its own -- EXK is excluded at $4.37 and admitted at $10.84.
+
+### Holdout, 568 days, costs on, 0.5% stop floor
+
+| min_price | trades | gross | cost | **net** | max DD | ret/DD | cost bps | >5R |
+|---|---|---|---|---|---|---|---|---|
+| none | 1,956 | $85,593 | $65,233 | $20,360 | 11.88% | 1.7 | 7.3 | 36 |
+| **$5** | 1,654 | $75,810 | $36,212 | **$39,598** | 4.92% | 8.0 | 4.6 | 30 |
+| **$10** | 976 | $49,174 | $10,727 | **$38,446** | **3.23%** | **11.9** | 2.2 | 16 |
+| $15 | 748 | $38,694 | $5,668 | $33,026 | 2.17% | 15.2 | 1.5 | 11 |
+| $20 | 622 | $28,176 | $3,704 | $24,472 | 2.02% | 12.1 | 1.2 | 8 |
+
+### Tuning, 193 days
+
+| min_price | trades | gross | cost | **net** | max DD | ret/DD | >5R |
+|---|---|---|---|---|---|---|---|
+| none | 614 | $38,496 | $10,052 | $28,444 | 5.77% | 4.9 | 17 |
+| **$5** | 579 | $37,571 | $6,856 | **$30,714** | 4.43% | 6.9 | 15 |
+| **$10** | 551 | $35,281 | $5,535 | $29,746 | 4.27% | **7.0** | 11 |
+| $20 | 388 | $16,128 | $2,463 | $13,665 | 5.34% | 2.6 | 3 |
+
+**This is the largest effect found in the project.** On the holdout a $5 screen
+nearly doubles net ($20,360 -> $39,598) while more than halving drawdown (11.88%
+-> 4.92%). Both periods improve on net AND drawdown at $5 and $10; $20 is too
+aggressive in both.
+
+Paired by day, costs on:
+
+| comparison | per day | t | P(<=0) | better/worse days |
+|---|---|---|---|---|
+| holdout none -> $5 | +$39.75 | **+2.64** | **0.002** | **248/211** |
+| holdout none -> $10 | +$37.37 | +1.63 | 0.063 | 284/188 |
+| holdout $5 -> $10 | -$2.49 | -0.14 | 0.536 | 238/187 |
+| tuning none -> $5 | +$14.01 | +1.09 | 0.117 | 32/14 |
+| tuning none -> $10 | +$8.04 | +0.33 | 0.387 | 54/30 |
+
+Note the holdout's better/worse split: 248/211 at $5 and 284/188 at $10, both
+majority-better. Unlike the stop floor, this change improves the TYPICAL day rather
+than only the tail -- it removes trades that were losing money to the spread.
+
+$5 and $10 are statistically indistinguishable from each other (t=-0.14).
+
+### Versus SPY, with the screen and costs
+
+| holdout | return | CAGR | max DD | ret/DD | Sharpe |
+|---|---|---|---|---|---|
+| bot, no screen | 20.5% | 8.6% | 11.88% | 1.7 | 0.92 |
+| bot, $5 screen | 39.7% | 16.0% | **4.92%** | **8.1** | **2.06** |
+| SPY buy & hold | **56.5%** | **22.0%** | 18.76% | 3.0 | 1.32 |
+
+| tuning | return | CAGR | max DD | ret/DD | Sharpe |
+|---|---|---|---|---|---|
+| bot, $5 screen | **30.7%** | **41.9%** | **4.43%** | **6.9** | **3.17** |
+| SPY buy & hold | 11.8% | 15.7% | 8.88% | 1.3 | 1.19 |
+
+The screen does not make the bot beat SPY's raw holdout return -- 39.7% against
+56.5%. It does take it from losing on every measure to winning decisively on
+risk-adjusted ones: Sharpe 2.06 vs 1.32, return per unit of drawdown 8.1 vs 3.0.
+Whether that trade is worth making is a judgement about leverage and temperament,
+not something the backtest decides.

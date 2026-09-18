@@ -14,6 +14,13 @@ eligibility:
   # backtest's rejection-reason breakdown (REJECTED_LOW_VOLUME was a meaningful
   # contributor).
   min_relative_volume: 1.10
+  # Minimum share price to enter. This is a TRANSACTION COST screen, not a quality
+  # judgement: the one-cent minimum tick is a fixed cost per share, so crossing a
+  # penny-wide market costs 12 bps on a $4 stock and 0.5 bps on a $95 one. The
+  # threshold maps directly to a cost ceiling -- 10 caps the tick at 5 bps per
+  # side, 20 at 2.5 bps. 0 disables the screen.
+  # See docs/BACKTEST_RESULTS.md for the sweep behind the chosen value.
+  min_price: 0.0
   # Stock's own price must be above its 9EMA to enter. Separate from
   # benchmark_confirmation.require_ema_alignment below (that one gates the
   # benchmark, this one gates the stock) -- previously this side had no config

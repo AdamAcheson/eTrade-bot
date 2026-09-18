@@ -172,6 +172,12 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--min-price", type=float, default=None,
+        help="EXPERIMENT override: reject entries below this share price. A tick-cost "
+             "screen -- the one-cent tick costs 12 bps on a $4 stock and 0.5 on a $95 "
+             "one. 10 caps tick cost at 5 bps per side, 20 at 2.5.",
+    )
+    parser.add_argument(
         "--spread-ticks", type=float, default=None,
         help="EXPERIMENT override: assumed quoted spread in CENTS. 1.0 (the shipped "
              "default) is the tightest a US equity quote can legally be and so is a "
@@ -305,6 +311,7 @@ def main() -> int:
         args.starting_equity is not None, args.min_relative_volume is not None,
         args.min_stop_pct is not None,
         args.spread_ticks is not None, args.impact_bps is not None, args.commission is not None,
+        args.min_price is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -356,6 +363,9 @@ def main() -> int:
         if args.partial_exit_trigger_r is not None:
             config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
             print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
+        if args.min_price is not None:
+            config.strategy["eligibility"]["min_price"] = args.min_price
+            print(f"  eligibility.min_price = {args.min_price}")
         for flag, key in (("spread_ticks", "spread_ticks"), ("impact_bps", "impact_bps"),
                           ("commission", "commission_per_order")):
             value = getattr(args, flag)

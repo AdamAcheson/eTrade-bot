@@ -21,6 +21,12 @@ class RejectionReason(str, Enum):
     REJECTED_BENCHMARK_CONFIRMATION = "REJECTED_BENCHMARK_CONFIRMATION"
     REJECTED_LOW_VOLUME = "REJECTED_LOW_VOLUME"
     REJECTED_WIDE_SPREAD = "REJECTED_WIDE_SPREAD"
+    # Price too low for the ONE-CENT MINIMUM TICK to be affordable: crossing a
+    # penny-wide market costs half a cent per share regardless of price, which is
+    # 12 bps on a $4 stock and 0.5 bps on a $95 one. Distinct from
+    # REJECTED_WIDE_SPREAD, which is about the quoted spread being unusually wide
+    # for that name; this one fires even when the quote is as tight as it can be.
+    REJECTED_TICK_COST = "REJECTED_TICK_COST"
     REJECTED_SPREAD_TOO_WIDE = "REJECTED_SPREAD_TOO_WIDE"
     REJECTED_BELOW_VWAP = "REJECTED_BELOW_VWAP"
     REJECTED_EMA_ALIGNMENT = "REJECTED_EMA_ALIGNMENT"
