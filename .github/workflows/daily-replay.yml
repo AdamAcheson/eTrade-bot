@@ -9,24 +9,27 @@ name: Daily session replay
 # are visible to anyone using that environment. A GitHub Actions secret is the
 # one place in this project's infrastructure actually built to hold a credential.
 #
-# 22:30 UTC is deliberate and needs no DST handling: it is 18:30 ET while EDT is
-# in effect and 17:30 ET under EST. Both are comfortably after the 16:00 close AND
-# after Twelve Data finishes consolidating volume (~80 minutes post-close). The
-# previous cron, 30 21 * * 1-5, was correct only during EDT -- under EST it would
-# have fired at 16:30 ET, half an hour before the data it needs exists.
+# THIS WORKFLOW IS MANUAL ONLY. There is no schedule, and that is deliberate.
+#
+# It carried "cron: 30 22 * * 1-5" and then "37 22 * * 1-5", and GitHub fired
+# NEITHER, on 2026-09-17 or 2026-09-18. Everything that would explain it was
+# checked and ruled out: the workflow state is active (manual runs go green), the
+# file is on the repository's default branch, the repo is not a fork, not
+# archived, not disabled, it is public so Actions minutes are unmetered, it was
+# pushed to the same day, and the cron syntax is valid. The configuration was
+# never the problem. GitHub's scheduler documents itself as best effort and is
+# widely unreliable on low-traffic repositories; a delayed schedule is dropped
+# rather than run late.
+#
+# Rather than leave a schedule in the file that implies a guarantee it does not
+# provide, the replay is run by hand: Actions -> Daily session replay -> Run
+# workflow. scripts/daily_replay.py takes --day, so a missed session can be
+# logged later from cached data and nothing expires. If a schedule is ever
+# restored, note that 22:37 UTC is 18:37 ET under EDT and 17:37 ET under EST --
+# both after the close and after Twelve Data consolidates volume (~80 minutes
+# post-close) -- so no DST handling is needed at that hour.
 
 on:
-  schedule:
-    # 22:37, not 22:30, deliberately. GitHub queues every repo's scheduled runs
-    # together and explicitly warns they "may be delayed during periods of high
-    # load" -- :00 and :30 are the most congested minutes on the platform, and a
-    # delayed schedule is not merely late, GitHub DROPS it. The first run at
-    # 22:30 on 2026-09-17 never fired at all (workflow state active, file on the
-    # default branch, nothing wrong with the config). An off-peak minute is the
-    # standard mitigation. Any minute in this window works: 22:37 UTC is 18:37 ET
-    # under EDT and 17:37 ET under EST, both after the close and after Twelve
-    # Data finishes consolidating volume.
-    - cron: "37 22 * * 1-5"
   workflow_dispatch:
     inputs:
       day:

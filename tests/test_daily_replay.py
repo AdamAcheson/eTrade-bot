@@ -83,3 +83,82 @@ def test_row_handles_a_missing_slv_series():
          "top_rejection": "n/a", "top_count": 0, "slv": None}
     row = dr.row_for("2026-09-16", s, "note")
     assert "n/a" in row and row.startswith("| 2026-09-16 |") and row.endswith("|")
+
+
+# --- running tally -------------------------------------------------------------
+# The tally used to be hand-written and drifted: by 2026-09-18 it claimed
+# "+$110.43 across 3 trades" while the table summed to -$181.81 across 8. Stale in
+# the flattering direction is the worst way for a P&L summary to be wrong.
+
+def _log(tmp_path, rows):
+    p = tmp_path / "DAILY_REPLAY_LOG.md"
+    body = ["# Daily replay", "", "| date | slv | signals | trades | net | rvol | top | note |",
+            "|---|---|---|---|---|---|---|---|"]
+    body += rows
+    body += ["", "### Running tally", "", "Stale text that must be replaced."]
+    p.write_text("\n".join(body) + "\n")
+    return p
+
+
+def test_tally_is_recomputed_from_the_table(tmp_path, monkeypatch):
+    import daily_replay
+    p = _log(tmp_path, [
+        "| 2026-09-11 | -1.00% | 100 | 0 | $0.00 | 0.50 | x (1) | n |",
+        "| 2026-09-17 | -0.15% | 100 | 3 | -$60.19 | 0.70 | x (1) | n |",
+        "| 2026-09-18 | -0.28% | 100 | 2 | -$232.05 | 0.63 | x (1) | n |",
+    ])
+    monkeypatch.setattr(daily_replay, "LOG", str(p))
+    daily_replay.refresh_tally()
+    out = p.read_text()
+    assert "3 sessions logged, 2 with trades, 1 with zero" in out
+    assert "**-$292.24**" in out
+    assert "across 5 trades" in out
+    assert "Stale text" not in out
+
+
+def test_tally_handles_a_positive_total(tmp_path, monkeypatch):
+    import daily_replay
+    p = _log(tmp_path, [
+        "| 2026-09-14 | +1.00% | 100 | 1 | +$16.90 | 0.50 | x (1) | n |",
+        "| 2026-09-15 | +1.00% | 100 | 2 | +$93.53 | 0.50 | x (1) | n |",
+    ])
+    monkeypatch.setattr(daily_replay, "LOG", str(p))
+    daily_replay.refresh_tally()
+    assert "**+$110.43**" in p.read_text()
+
+
+def test_appending_a_row_refreshes_the_tally(tmp_path, monkeypatch):
+    """The drift happened because appending and summarising were separate steps.
+    They must not be separable again."""
+    import daily_replay
+    p = _log(tmp_path, ["| 2026-09-14 | +1.00% | 100 | 1 | +$16.90 | 0.50 | x (1) | n |"])
+    monkeypatch.setattr(daily_replay, "LOG", str(p))
+    daily_replay.append_row("2026-09-15", "| 2026-09-15 | +1.00% | 100 | 2 | +$93.53 | 0.50 | x (1) | n |")
+    out = p.read_text()
+    assert "2 sessions logged, 2 with trades, 0 with zero" in out
+    assert "**+$110.43**" in out
+
+
+def test_a_refused_duplicate_does_not_change_the_tally(tmp_path, monkeypatch):
+    import daily_replay
+    p = _log(tmp_path, ["| 2026-09-14 | +1.00% | 100 | 1 | +$16.90 | 0.50 | x (1) | n |"])
+    monkeypatch.setattr(daily_replay, "LOG", str(p))
+    daily_replay.refresh_tally()
+    before = p.read_text()
+    assert daily_replay.append_row("2026-09-14", "| 2026-09-14 | dup |") is False
+    assert p.read_text() == before
+
+
+def test_an_unparseable_row_is_skipped_not_fatal(tmp_path, monkeypatch):
+    """By the time the tally runs the new row is already on disk, so raising would
+    fail the job after mutating the log -- worse than an approximate tally."""
+    import daily_replay
+    p = _log(tmp_path, [
+        "| 2026-09-14 | +1.00% | 100 | 1 | +$16.90 | 0.50 | x (1) | n |",
+        "| 2026-09-15 |",
+        "| 2026-09-16 | +1.00% | 100 | 2 | +$93.53 | 0.50 | x (1) | n |",
+    ])
+    monkeypatch.setattr(daily_replay, "LOG", str(p))
+    daily_replay.refresh_tally()
+    out = p.read_text()
+    assert "**+$110.43**" in out and "across 3 trades" in out

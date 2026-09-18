@@ -50,18 +50,42 @@ code contract -- 0 ran, 2 no key, 3 not a trading session, 4 data unusable (row
 still appended), 5 subprocess failed -- and refuses to log the same date twice, so
 a retrying scheduler cannot double-count a session.
 
-`.github/workflows/daily-replay.yml` runs it on schedule. CI rather than an agent
-session because of where the key can safely live: `.env` is gitignored, and the
-cloud environment's Environment variables box warns in its own UI that values are
+`.github/workflows/daily-replay.yml` runs it. CI rather than an agent session
+because of where the key can safely live: `.env` is gitignored, and the cloud
+environment's Environment variables box warns in its own UI that values are
 visible to anyone using that environment. A GitHub Actions secret is the only
 place in this project's infrastructure built to hold a credential.
 
-The workflow runs at **22:30 UTC**, which also retires a bug never hit in
-production: the old cron `30 21 * * 1-5` was 17:30 ET only during EDT, and would
-have fired at 16:30 ET under EST -- half an hour before the close, and two hours
-before Twelve Data finishes consolidating volume. 22:30 UTC is 18:30 ET in summer
-and 17:30 ET in winter. Both are after the close and after consolidation, so no
-DST handling is needed at all.
+### The schedule was removed on 2026-09-18, because GitHub never ran it
+
+The workflow carried `cron: 30 22 * * 1-5`, and after the first miss `37 22 * * 1-5`
+on the theory that `:30` is a congested slot. **GitHub fired neither**, on 09-17 or
+09-18. Everything that would explain it was checked and ruled out:
+
+| check | result |
+|---|---|
+| scheduled runs recorded | none -- every run is `workflow_dispatch` |
+| cron syntax on the default branch | valid, and the file IS on the default branch |
+| workflow state | active; manual runs go green in ~6 minutes |
+| fork? (forks disable schedules) | no |
+| archived / disabled? | no |
+| Actions minutes | public repo, unmetered |
+| repo activity (60-day rule) | pushed to the same day |
+
+The configuration was never wrong. GitHub documents scheduled workflows as best
+effort, warns they may be delayed under load, and a delayed schedule is DROPPED
+rather than run late; this is widely reported on low-traffic repositories.
+
+Rather than keep a `schedule:` block that implies a guarantee it does not provide,
+the trigger was removed. **The replay is now run by hand:** Actions -> Daily
+session replay -> Run workflow. Nothing is lost by a missed day, because
+`daily_replay.py --day YYYY-MM-DD` replays any past session from cached data.
+
+If a schedule is ever restored: 22:37 UTC is 18:37 ET under EDT and 17:37 ET under
+EST, both after the close and after Twelve Data consolidates volume (~80 minutes
+post-close), so no DST handling is needed at that hour. That also retires a bug
+never hit in production -- the original `30 21 * * 1-5` was 17:30 ET only during
+EDT and would have fired at 16:30 ET under EST, before the close.
 
 **One manual step remains:** add `TWELVEDATA_API_KEY` under the repo's
 Settings -> Secrets and variables -> Actions. Until then the workflow fails loudly
@@ -97,6 +121,4 @@ tape was never up.
 
 ### Running tally
 
-Five sessions logged, 3 with trades, 2 with zero. Cumulative P&L **+$110.43**
-across 3 trades. Far too small a sample to compare against the backtest's ~30%
-zero-trade rate and 2.6 trades per active session; the point remains accumulation.
+6 sessions logged, 4 with trades, 2 with zero. Cumulative P&L **-$181.81** across 8 trades. Far too small a sample to compare against the backtest's ~30% zero-trade rate and 2.6 trades per active session; the point remains accumulation.

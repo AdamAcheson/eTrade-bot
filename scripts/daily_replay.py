@@ -24,6 +24,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -88,6 +89,53 @@ def row_for(day: str, s, note: str) -> str:
             f"{s['top_rejection']} ({s['top_count']}) | {note} |")
 
 
+TALLY_HEADING = "### Running tally"
+
+
+def refresh_tally() -> None:
+    """Regenerate the running tally from the table itself.
+
+    It used to be hand-written, and by 2026-09-18 it claimed "+$110.43 across 3
+    trades" while the table summed to -$181.81 across 8 -- stale in the flattering
+    direction, which is the worst way for a P&L summary to be wrong. Deriving it
+    from the rows means it cannot drift again.
+
+    The tally must stay the LAST section of the file: everything from its heading
+    to EOF is replaced.
+    """
+    with open(LOG) as f:
+        text = f.read()
+    rows = [l for l in text.split("\n") if re.match(r"^\| 20\d\d-\d\d-\d\d \|", l)]
+    sessions = len(rows)
+    trades = net = 0
+    active = 0
+    for line in rows:
+        cells = [c.strip() for c in line.split("|")]
+        try:
+            n = int(cells[4])
+            pnl = float(cells[5].replace("$", "").replace(",", "").replace("**", ""))
+        except (IndexError, ValueError):
+            # A row that cannot be parsed is skipped rather than fatal. By the time
+            # this runs the row is already written, so raising would fail the job
+            # AFTER mutating the log -- the one outcome worse than an approximate
+            # tally.
+            continue
+        trades += n
+        active += 1 if n else 0
+        net += pnl
+    body = (
+        f"{TALLY_HEADING}\n\n"
+        f"{sessions} sessions logged, {active} with trades, {sessions - active} with zero. "
+        f"Cumulative P&L **{'+' if net >= 0 else '-'}${abs(net):,.2f}** across {trades} "
+        f"trades. Far too small a sample to compare against the backtest's ~30% "
+        f"zero-trade rate and 2.6 trades per active session; the point remains "
+        f"accumulation.\n"
+    )
+    head = text.split(TALLY_HEADING)[0] if TALLY_HEADING in text else text.rstrip() + "\n\n"
+    with open(LOG, "w") as f:
+        f.write(head + body)
+
+
 def append_row(day: str, row: str) -> bool:
     """Insert after the last existing table row. Returns False if `day` is already
     logged -- re-running must never double-count a session, and a scheduler that
@@ -101,6 +149,7 @@ def append_row(day: str, row: str) -> bool:
     lines.insert(last + 1, row)
     with open(LOG, "w") as f:
         f.write("\n".join(lines))
+    refresh_tally()
     return True
 
 
