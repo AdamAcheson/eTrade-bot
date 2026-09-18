@@ -20,6 +20,7 @@ Backtest baselines to compare against (19-ticker holdout, 568 sessions):
 | 2026-09-15 | +0.07% | 1823 | 2 | +$93.53 | 0.49 | benchmark confirmation (841) | AUGO stopped -1.00R, CDE trailing stop +2.10R; first session on the 24-ticker universe |
 | 2026-09-16 | **-2.23%** | 1837 | 0 | $0 | 0.60 | benchmark confirmation (1172) | SIL closed above its VWAP on **0 of 78 bars**; GDX 2/78, SILJ 1/78 |
 | 2026-09-17 | -0.15% | 1831 | 3 | -$60.19 | 0.70 | low volume (797) | 3 trade(s) |
+| 2026-09-18 | -0.28% | 1774 | 2 | -$232.05 | 0.63 | benchmark confirmation (751) | 2 trade(s) |
 
 ## Routine reliability
 
