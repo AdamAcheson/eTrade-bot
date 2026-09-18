@@ -22,16 +22,29 @@ def final_stop_price(
     atr_value: float,
     atr_multiplier: float,
     swing_low: Optional[float],
+    min_stop_distance: Optional[float] = None,
 ) -> float:
-    """The final stop is the WIDER (lower) of the ATR-based stop and the
-    structure-based stop, so a normal-sized pullback doesn't stop the trade out
-    before the thesis is actually invalidated. Position size (not the stop) absorbs
-    the resulting risk-per-share, per spec section 14's last line."""
+    """The final stop is the WIDEST (lowest) of the ATR-based stop, the
+    structure-based stop, and an optional absolute floor, so a normal-sized
+    pullback doesn't stop the trade out before the thesis is actually invalidated.
+    Position size (not the stop) absorbs the resulting risk-per-share, per spec
+    section 14's last line.
+
+    `min_stop_distance` exists because ATR here is a 14-period average of FIVE-MINUTE
+    bars -- it measures roughly the last 70 minutes, and collapses in a quiet
+    afternoon. On 2026-09-17 that produced a CDE stop 0.22% below entry against a
+    5.09% median daily range for that name, and a 0.42% move against the position
+    took it out. A floor lets the stop reference the instrument's real volatility
+    without redefining `atr` itself, which the chase rule's max_atr_above_vwap is
+    separately calibrated against."""
     atr_stop = atr_stop_price(entry_price, atr_value, atr_multiplier)
+    candidates = [atr_stop]
     structure_stop = structure_stop_price(swing_low)
-    if structure_stop is None:
-        return atr_stop
-    return min(atr_stop, structure_stop)
+    if structure_stop is not None:
+        candidates.append(structure_stop)
+    if min_stop_distance:
+        candidates.append(entry_price - min_stop_distance)
+    return min(candidates)
 
 
 def atr_multiplier_for_category(volatility_category: str, multipliers: dict) -> float:

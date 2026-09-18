@@ -172,6 +172,14 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--min-stop-pct", type=float, default=None,
+        help="EXPERIMENT override: floor the stop at this %% of entry price (in-memory "
+             "only). Proxy for sizing stops off DAILY volatility rather than the "
+             "14-period ATR of 5-minute bars, which measures ~70 minutes and collapses "
+             "in a quiet afternoon. These names average ~5%% daily range, so 1.0 here is "
+             "roughly 0.2x daily ATR.",
+    )
+    parser.add_argument(
         "--min-relative-volume", type=float, default=None,
         help="EXPERIMENT override: eligibility.min_relative_volume, the hard RVOL entry "
              "gate (in-memory only). The shipped 1.10 demands today's cumulative volume "
@@ -281,6 +289,7 @@ def main() -> int:
         args.no_partial_exit, args.partial_exit_trigger_r is not None,
         args.no_chase_rule, args.chase_max_atr_above_vwap is not None,
         args.starting_equity is not None, args.min_relative_volume is not None,
+        args.min_stop_pct is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -332,6 +341,9 @@ def main() -> int:
         if args.partial_exit_trigger_r is not None:
             config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
             print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
+        if args.min_stop_pct is not None:
+            config.risk["stops"]["min_stop_pct_of_price"] = args.min_stop_pct
+            print(f"  stops.min_stop_pct_of_price = {args.min_stop_pct}")
         if args.min_relative_volume is not None:
             config.strategy["eligibility"]["min_relative_volume"] = args.min_relative_volume
             print(f"  eligibility.min_relative_volume = {args.min_relative_volume}")

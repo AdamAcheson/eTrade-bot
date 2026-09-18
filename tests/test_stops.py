@@ -48,3 +48,50 @@ def test_atr_multiplier_for_category(category, expected_key):
         "high_volatility_speculative": 0.95,
     }
     assert atr_multiplier_for_category(category, multipliers) == multipliers[expected_key]
+
+
+# --- stop floor (min_stop_distance) -------------------------------------------
+# ATR here is a 14-period average of FIVE-MINUTE bars, so it measures roughly the
+# last 70 minutes and collapses in a quiet afternoon. On 2026-09-17 that put a CDE
+# stop 0.22% below entry against a 5.09% median daily range, and a 0.42% move took
+# it out. These pin the floor that lets the stop reference real volatility.
+
+def test_floor_widens_a_stop_that_atr_placed_inside_the_noise():
+    from risk.position_sizing import final_stop_price
+    # CDE as it actually happened: entry 20.125, 5-min ATR 0.0526, multiplier 0.85
+    unfloored = final_stop_price(20.125, atr_value=0.0526, atr_multiplier=0.85, swing_low=None)
+    assert round(20.125 - unfloored, 4) == 0.0447          # 0.22% of price
+    floored = final_stop_price(20.125, atr_value=0.0526, atr_multiplier=0.85,
+                               swing_low=None, min_stop_distance=20.125 * 0.005)
+    assert round(20.125 - floored, 4) == round(20.125 * 0.005, 4)  # 0.50% of price
+    assert floored < unfloored
+
+
+def test_floor_never_tightens_an_already_wide_stop():
+    """The floor is a MINIMUM distance, not a target. A volatile session that
+    produces a wide ATR stop must keep it -- tightening to the floor would be the
+    one thing spec section 14 forbids, moving the stop to suit sizing."""
+    from risk.position_sizing import final_stop_price
+    wide = final_stop_price(100.0, atr_value=5.0, atr_multiplier=0.85, swing_low=None)
+    floored = final_stop_price(100.0, atr_value=5.0, atr_multiplier=0.85,
+                               swing_low=None, min_stop_distance=1.0)
+    assert wide == floored == 100.0 - 4.25
+
+
+def test_floor_still_loses_to_an_even_wider_structure_stop():
+    """Structure, ATR and floor are three candidates and the WIDEST wins."""
+    from risk.position_sizing import final_stop_price
+    stop = final_stop_price(100.0, atr_value=0.1, atr_multiplier=0.85,
+                            swing_low=97.0, min_stop_distance=1.0)
+    assert stop == 97.0
+
+
+def test_zero_or_none_floor_is_inert():
+    """Default must reproduce the shipped behaviour exactly, so enabling the floor
+    is an explicit decision rather than a silent change to every stop."""
+    from risk.position_sizing import final_stop_price
+    base = final_stop_price(50.0, atr_value=0.2, atr_multiplier=0.85, swing_low=None)
+    assert final_stop_price(50.0, atr_value=0.2, atr_multiplier=0.85,
+                            swing_low=None, min_stop_distance=None) == base
+    assert final_stop_price(50.0, atr_value=0.2, atr_multiplier=0.85,
+                            swing_low=None, min_stop_distance=0.0) == base

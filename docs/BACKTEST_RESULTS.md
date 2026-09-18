@@ -750,3 +750,60 @@ price against a 5.05% median daily range for those names -- CDE was stopped by a
 so it measures the last ~70 minutes and collapses in a quiet afternoon. Whether
 the stop should reference a longer horizon is a separate, untested question, and a
 more promising one than the trail multiplier.
+
+## Stop floor: sizing stops off real volatility instead of a 70-minute ATR
+
+The lead from the 2026-09-17 diagnosis. The stop is 0.85 x ATR where ATR is a
+14-period average of FIVE-MINUTE bars -- it measures about the last 70 minutes and
+collapses in a quiet afternoon. CDE was entered at 15:05 with a stop 0.22% below
+entry against a 5.09% median daily range, and a 0.42% adverse move took it out.
+
+Implemented as a FLOOR (`stops.min_stop_pct_of_price`, `--min-stop-pct`) rather
+than by redefining `atr`: the chase rule's `max_atr_above_vwap: 3.0` is separately
+calibrated against the 5-minute ATR and would have shifted meaning silently. The
+floor is a third candidate alongside the ATR and structure stops, and the widest
+still wins -- it can never tighten a stop.
+
+These names average ~5% daily range, so a 0.5% floor is roughly 0.1x daily ATR.
+
+### Holdout, 568 days
+
+| floor | trades | net | max DD | return/DD | >3R | >5R | mean R | full-stop rate |
+|---|---|---|---|---|---|---|---|---|
+| none (shipped) | 1,991 | $77,347 | 4.93% | 15.7 | 140 | 41 | +0.321 | 50% |
+| **0.5%** | 1,989 | **$90,543** | 5.29% | **17.1** | 129 | 37 | +0.286 | 46% |
+| 1.0% | 1,895 | $82,389 | 6.85% | 12.0 | 43 | 1 | +0.161 | 35% |
+| 1.5% | 1,755 | $85,233 | 9.16% | 9.3 | 8 | 0 | +0.129 | 27% |
+| 2.0% | 1,684 | $71,515 | **17.01%** | 4.2 | - | - | - | - |
+
+Drawdown degrades monotonically and then catastrophically -- 17% at a 2% floor.
+Past 0.5% the runner population is destroyed: >5R goes 41 -> 1 -> 0. Only 0.5%
+both improves net AND leaves the tail broadly intact, which is the constraint that
+killed the trailing-stop change.
+
+### Both periods, floor 0.5%
+
+| period | net | vs baseline | max DD | paired t | P(<=0) | better/worse days |
+|---|---|---|---|---|---|---|
+| holdout | $90,543 | +$13,196 | 4.93% -> 5.29% | **+2.36** | **0.009** | 193/289 |
+| tuning | $38,648 | +$2,450 | 5.61% -> 6.00% | +1.07 | 0.103 | 40/79 |
+
+**The holdout result is the first change tested in this project to clear
+significance** (P(<=0) = 0.009, bootstrap CI +$4.09 .. +$52.53 per active day).
+
+### The wrinkle, which matters
+
+In BOTH periods MORE days are worse than better -- 193/289 and 40/79, over 2:1
+against on the tuning period. The mean is positive only because the winning days
+win much bigger.
+
+That is mechanically exactly what a wider stop should do, and it is the same shape
+as the chase-rule relaxation that was adopted earlier: most days get slightly
+worse because small losses become slightly larger, while trades that would have
+been noise-stopped survive to become runners. For a strategy where 96% of profit
+comes from 7% of trades, trading many small day-level losses for a fatter right
+tail is the correct direction -- but it means the typical day gets WORSE, and
+anyone watching daily P&L will feel it before the tail pays.
+
+NOT adopted unilaterally. It costs drawdown in both periods, it makes the median
+day worse, and one of the two periods is not significant.

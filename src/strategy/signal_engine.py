@@ -147,11 +147,13 @@ def evaluate_ticker(ctx: EvaluationContext, strategy_config: dict, risk_config: 
 
     entry_price = setup.entry_price or ctx.snapshot.last_price
     atr_multiplier = atr_multiplier_for_category(ctx.volatility_category, risk_config["stops"]["atr_multiplier"])
+    min_stop_pct = risk_config["stops"].get("min_stop_pct_of_price", 0.0)
     stop_price = final_stop_price(
         entry_price,
         atr_value=ctx.snapshot.atr,
         atr_multiplier=atr_multiplier,
         swing_low=setup.structure_stop_reference or ctx.snapshot.swing_low,
+        min_stop_distance=entry_price * min_stop_pct / 100.0 if min_stop_pct else None,
     )
 
     rr_cfg = strategy_config["reward_risk"]
