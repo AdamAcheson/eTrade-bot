@@ -839,3 +839,88 @@ Known costs, accepted deliberately:
 
 The usable band is narrow -- 1.0% cuts >5R trades from 41 to 1, and 2.0% takes
 drawdown to 17% -- so `test_shipped_stop_floor_is_half_a_percent` pins the value.
+
+## Versus SPY buy & hold -- and the transaction-cost problem it exposed
+
+`scripts/benchmark_compare.py` compares a backtest tag against buy-and-hold over
+the SAME trading days, using ADJUSTED closes so the benchmark gets its dividends.
+
+| holdout, 2023-09-01 -> 2025-12-05 | return | CAGR | max DD | ret/DD | Sharpe |
+|---|---|---|---|---|---|
+| bot (zero cost) | 90.6% | 33.1% | 3.45% | 26.2 | 3.88 |
+| SPY buy & hold | 56.5% | 22.0% | 18.76% | 3.0 | 1.32 |
+| QQQ buy & hold | 67.9% | 25.9% | 22.77% | 3.0 | 1.23 |
+
+| tuning, 2025-12-10 -> 2026-09-17 | return | CAGR | max DD | ret/DD | Sharpe |
+|---|---|---|---|---|---|
+| bot (zero cost) | 38.6% | 53.2% | 4.49% | 8.6 | 3.77 |
+| SPY buy & hold | 11.8% | 15.7% | 8.88% | 1.3 | 1.19 |
+
+A Sharpe near 4 is not a plausible number for a real intraday strategy, and
+chasing down why produced the most important finding in this file.
+
+### The backtest assumes free trading
+
+`gross_profit == net_profit` on every trade in every run recorded here. The
+backtest fills at bar prices with no commission and no slippage. That is harmless
+when comparing two configurations against each other -- both pay nothing -- and
+badly misleading when comparing against buy-and-hold, which pays its cost ONCE.
+
+The holdout does 1,989 round trips moving **$92.3M of notional on $100k of
+equity**. Against $90.5k of profit:
+
+| cost per side | holdout return | Sharpe | % of profit left |
+|---|---|---|---|
+| 0 bps | 90.6% | 3.88 | 100% |
+| 2 bps | 72.2% | 3.15 | 80% |
+| 5 bps | 44.6% | 1.99 | 49% |
+| **10 bps** | **-1.5%** | **-0.01** | **-2%** |
+
+**The strategy breaks even at 9.8 bps per side** (12.5 on the tuning period).
+
+### Why that is not a comfortable margin
+
+A US equity quote cannot be tighter than one cent, so crossing a perfectly tight
+market costs half a cent per side. Weighted by this strategy's actual traded
+notional, that floor is **7.3 bps per side** -- because 54% of the notional is in
+sub-$10 stocks where a penny is enormous in relative terms:
+
+| ticker | avg price | min half-spread | trades | net |
+|---|---|---|---|---|
+| SVM | $4.05 | 12.4 bps | 107 | $5,117 |
+| EXK | $4.37 | 11.4 bps | 140 | $4,358 |
+| FSM | $5.41 | 9.2 bps | 141 | $5,001 |
+| HL | $6.70 | 7.5 bps | 127 | -$206 |
+| SIL | $39.62 | 1.3 bps | 109 | $2,299 |
+| SCCO | $94.61 | 0.5 bps | 99 | $2,906 |
+
+So the edge (9.8 bps) exceeds the theoretical minimum cost of trading these names
+(7.3 bps) by 2.5 bps -- and that floor assumes every market is exactly one cent
+wide, that $25k orders in $4 miners have zero market impact, and zero commission.
+SVM and EXK are individually underwater against their own tick floor.
+
+Exits make this concrete rather than theoretical: `submit_exit_order` sends a
+MARKETABLE limit, so every exit crosses the spread by construction. Entries use a
+"wait for a good fill" limit, which either crosses too or invites adverse
+selection -- resting orders fill on the names that come back to you and miss the
+ones that run, which preferentially discards the right-tail winners the whole
+strategy depends on.
+
+### What this means
+
+The bot beats SPY on a zero-cost backtest by a wide margin on both return and
+drawdown, and the drawdown advantage is real -- it is flat overnight and its
+equity curve is genuinely smoother. But the return advantage is smaller than the
+cost of the trading required to produce it. On these names, at this trade
+frequency, the edge and the spread are the same size.
+
+Nothing here is a reason to trust the zero-cost numbers less as a COMPARISON
+between configs (the stop floor's +17% is still a real relative improvement). It
+is a reason not to read any of them as an expected return.
+
+The obvious directions, none of them tested yet:
+1. Model costs in the backtest properly, and re-run every result in this file.
+2. Bias the universe toward higher-priced names, where the tick floor is 1-2 bps
+   instead of 12 -- SCCO and SIL clear their floor comfortably.
+3. Trade less. 1,989 round trips for $90k is a thin margin per trade; a higher
+   score threshold would cut notional faster than it cuts profit.
