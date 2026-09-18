@@ -1099,3 +1099,33 @@ The screen does not make the bot beat SPY's raw holdout return -- 39.7% against
 risk-adjusted ones: Sharpe 2.06 vs 1.32, return per unit of drawdown 8.1 vs 3.0.
 Whether that trade is worth making is a judgement about leverage and temperament,
 not something the backtest decides.
+
+### ADOPTED: min_price = 10.0
+
+Re-verified with NO override flags, so both runs exercise the shipped config path
+end to end. Both reproduced the flag runs to the cent: holdout $38,446.26, tuning
+$29,745.69.
+
+$10 was chosen over the marginally higher-netting $5 on three grounds: the two are
+statistically indistinguishable (t=-0.14); $10 halves holdout drawdown (4.92% ->
+3.23%) for ~3% less net; and $10 caps tick cost at 5 bps per side against a ~10 bps
+breakeven, leaving headroom if real spreads exceed the one-cent floor the cost
+model assumes -- which they do on the cheaper names. The cost model is deliberately
+optimistic, so the more conservative screen is the safer read of it.
+
+### Where the shipped config now stands (holdout, costs on)
+
+| configuration | net | max DD | ret/DD |
+|---|---|---|---|
+| no stop floor, no price screen | $10,512 | 13.85% | 0.8 |
+| + stop floor 0.5% | $20,360 | 11.88% | 1.7 |
+| **+ price screen $10** | **$38,446** | **3.23%** | **11.9** |
+
+Two config values, both adopted today, take the holdout from $10.5k on a 13.85%
+drawdown to $38.4k on a 3.23% one -- 3.7x the net for a quarter of the drawdown.
+Neither changed a single line of strategy logic; both are about the cost of
+trading rather than about what to trade.
+
+The honest caveat remains that the holdout still returns less than SPY over the
+same window (39.7% at the $5 screen, 38.4k/38.4% at $10, against SPY's 56.5%),
+while beating it substantially on every risk-adjusted measure.

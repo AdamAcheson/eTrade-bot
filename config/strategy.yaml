@@ -19,8 +19,13 @@ eligibility:
   # penny-wide market costs 12 bps on a $4 stock and 0.5 bps on a $95 one. The
   # threshold maps directly to a cost ceiling -- 10 caps the tick at 5 bps per
   # side, 20 at 2.5 bps. 0 disables the screen.
-  # See docs/BACKTEST_RESULTS.md for the sweep behind the chosen value.
-  min_price: 0.0
+  # See docs/BACKTEST_RESULTS.md for the sweep behind this value. 10 caps tick cost
+  # at 5 bps per side -- half the strategy's ~10 bps breakeven budget. $5 posted a
+  # marginally higher net in both periods but is statistically indistinguishable
+  # from $10 (t=-0.14), while $10 halves holdout drawdown (4.92% -> 3.23%) and
+  # leaves more headroom if real spreads exceed the one-cent floor the cost model
+  # assumes -- which they do on the cheaper names.
+  min_price: 10.0
   # Stock's own price must be above its 9EMA to enter. Separate from
   # benchmark_confirmation.require_ema_alignment below (that one gates the
   # benchmark, this one gates the stock) -- previously this side had no config

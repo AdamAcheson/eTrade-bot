@@ -73,3 +73,33 @@ def test_threshold_maps_to_the_documented_cost_ceiling():
                                  ema_9=9.85, swing_low=9.50)
     assert basic_eligibility(at_ten, max_spread_pct=0.50, min_relative_volume=1.1,
                              min_price=10.0).eligible
+
+
+def test_shipped_threshold_is_ten_dollars():
+    """Pins the shipped value. The sweep is a broad plateau in net ($5 and $10 are
+    indistinguishable at t=-0.14) but NOT in drawdown or in cost headroom, which is
+    why $10 was chosen over the marginally higher-netting $5. A drive-by change
+    should have to break a test."""
+    from config_loader import load_config
+    assert load_config().strategy["eligibility"]["min_price"] == 10.0
+
+
+def test_shipped_threshold_actually_rejects_the_names_it_is_meant_to():
+    """Asserts on behaviour, not the config value: the sub-$10 miners that carried
+    57% of the holdout's traded notional must now be refused at their old prices."""
+    from config_loader import load_config
+    min_price = load_config().strategy["eligibility"]["min_price"]
+    for price in (4.05, 4.37, 5.41, 6.70, 7.46):  # SVM, EXK, FSM, HL, AG in the holdout
+        snap = base_stock_snapshot(last_price=price, bid=price - 0.01, ask=price,
+                                   vwap=price * 0.98, ema_9=price * 0.97,
+                                   swing_low=price * 0.95)
+        result = basic_eligibility(snap, max_spread_pct=0.50, min_relative_volume=1.1,
+                                   min_price=min_price)
+        assert result.reason == "REJECTED_TICK_COST", price
+    # ...and the same names at their later, post-rally prices must be admitted
+    for price in (10.70, 10.84, 19.39, 20.98):
+        snap = base_stock_snapshot(last_price=price, bid=price - 0.01, ask=price,
+                                   vwap=price * 0.98, ema_9=price * 0.97,
+                                   swing_low=price * 0.95)
+        assert basic_eligibility(snap, max_spread_pct=0.50, min_relative_volume=1.1,
+                                 min_price=min_price).eligible, price
