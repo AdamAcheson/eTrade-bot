@@ -208,7 +208,13 @@ def main() -> int:
 
 
 def commit(day: str, note: str):
-    run(["git", "add", "docs/DAILY_REPLAY_LOG.md"])
+    # data_cache/ goes in alongside the log. The bars this run just fetched are
+    # tracked files, and staging only the log meant every CI run re-spent Twelve
+    # Data credits on data it had already pulled, while no checkout could ever
+    # reproduce the session CI had just logged. The cost is repository size: ~33
+    # CSVs grow by one session's bars per run, which is the deliberate trade for
+    # a cache that actually accumulates.
+    run(["git", "add", "docs/DAILY_REPLAY_LOG.md", "data_cache"])
     r = run(["git", "commit", "-m",
              f"Daily replay {day}: {note}\n\n"
              f"Appended by scripts/daily_replay.py.\n\n"

@@ -162,3 +162,34 @@ def test_an_unparseable_row_is_skipped_not_fatal(tmp_path, monkeypatch):
     daily_replay.refresh_tally()
     out = p.read_text()
     assert "**+$110.43**" in out and "across 3 trades" in out
+
+
+def test_commit_stages_the_bar_cache_as_well_as_the_log(monkeypatch):
+    """CI used to stage only the log, so the bars each run fetched died with the
+    runner: credits were re-spent every run and no checkout could reproduce the
+    session CI had just logged. Pinning the paths keeps that from regressing."""
+    import daily_replay
+    calls = []
+
+    class _R:
+        returncode = 1  # non-zero stops it before the push
+
+    monkeypatch.setattr(daily_replay, "run", lambda cmd, **kw: calls.append(cmd) or _R())
+    daily_replay.commit("2026-09-18", "2 trade(s)")
+    add = next(c for c in calls if c[:2] == ["git", "add"])
+    assert "docs/DAILY_REPLAY_LOG.md" in add
+    assert "data_cache" in add
+
+
+def test_commit_does_not_push_when_there_was_nothing_to_commit(monkeypatch):
+    """A no-op commit returns non-zero; pushing anyway would be a wasted call and
+    would obscure whether the row actually landed."""
+    import daily_replay
+    calls = []
+
+    class _R:
+        returncode = 1
+
+    monkeypatch.setattr(daily_replay, "run", lambda cmd, **kw: calls.append(cmd) or _R())
+    daily_replay.commit("2026-09-18", "0 trade(s)")
+    assert not any(c[:2] == ["git", "push"] for c in calls)
