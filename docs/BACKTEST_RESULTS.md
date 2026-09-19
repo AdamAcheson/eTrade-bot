@@ -1391,3 +1391,74 @@ needs real historical quote data, which the project does not have.
 If the score is to be worth anything, it needs NEW features with genuine predictive
 content, validated across both periods before being weighted. Reweighting what is
 already there has now been tested and does not work.
+
+## Bake-off: every strategy variant, August + September 2026, $5,000 account
+
+All nine variants produced during this project, run over the same 34 trading days
+(2026-08-03 to 2026-09-18) on a **$5,000** account with transaction costs modelled.
+Costs are measurement rather than strategy, so every variant pays them.
+
+Note what $5,000 changes: `max_position_size_pct_equity: 0.25` caps a position at
+$1,250, far below the $25,000 dollar cap, so the percentage cap binds on every
+trade. Tick cost in basis points is unchanged (it depends on share price, not
+position size), but risk per trade is a much smaller fraction of equity.
+
+| strategy | trades | gross | costs | **net** | return | max DD | ret/DD |
+|---|---|---|---|---|---|---|---|
+| shipped + trailing 0.4 ATR | 81 | $209.13 | $41.98 | **+$167.15** | **+3.34%** | 1.38% | **2.4** |
+| **SHIPPED** (floor 0.5 + screen $10) | 79 | $193.27 | $40.83 | **+$152.44** | +3.05% | 1.63% | 1.9 |
+| shipped + gap-day RVOL | 93 | $178.52 | $46.84 | +$131.68 | +2.63% | 1.88% | 1.4 |
+| stop floor 1.5% + screen | 69 | $168.62 | $39.11 | +$129.51 | +2.59% | 1.96% | 1.3 |
+| floor 0.5 + screen $5 | 77 | $162.75 | $41.41 | +$121.34 | +2.43% | 1.63% | 1.5 |
+| stop floor 0.5 only, no screen | 82 | $136.18 | $60.74 | +$75.44 | +1.51% | 2.49% | 0.6 |
+| shipped + score +10 | 51 | $78.95 | $28.45 | +$50.50 | +1.01% | 1.24% | 0.8 |
+| ORIGINAL (no floor, no screen) | 85 | $107.42 | $64.08 | +$43.34 | +0.87% | 2.51% | 0.3 |
+| shipped + DIA/SLV regime filter | 32 | $8.93 | $17.61 | **-$8.68** | -0.17% | 1.39% | -0.1 |
+
+The one unambiguous result: **today's two adopted changes are worth 3.5x the
+original**, $152.44 against $43.34, and they cut costs from $64.08 to $40.83 while
+halving drawdown. That ordering also holds on the 568-day holdout, so it is not a
+two-month accident.
+
+### The winner is noise, and the holdout says so
+
+`trailing 0.4` tops this table by **$14.71** -- 0.29% of a $5,000 account, less
+than one trade. Picking a winner by that margin from nine candidates over 34 days
+is selecting on noise. Run on the 568-day holdout, on top of the current stack:
+
+| | net | max DD | >3R | >5R | mean R |
+|---|---|---|---|---|---|
+| SHIPPED | **$38,446** | 3.23% | 62 | **16** | +0.291 |
+| + trailing 0.4 | $38,098 | **2.83%** | 51 | **9** | +0.287 |
+
+Over 568 days it is $349 WORSE, and it cuts trades above +5R nearly in half -- the
+same tail damage that got the trailing-stop change rejected the first time. It buys
+a smoother curve (2.83% drawdown vs 3.23%) at the cost of the right tail this
+strategy depends on. Two months could not see that; 568 days can.
+
+### Ranks are unstable, which is the real lesson
+
+| strategy | 2-month rank | holdout rank | move |
+|---|---|---|---|
+| shipped + trailing 0.4 | 1 | not run until now | -- |
+| **SHIPPED** | **2** | **2** | **same** |
+| shipped + gap-day RVOL | 3 | 3 | same |
+| floor 0.5 + screen $5 | 5 | **1** | **-4** |
+| shipped + score +10 | 7 | 4 | -3 |
+| shipped + regime filter | 9 | 6 | -3 |
+
+The holdout's best variant (screen $5) places FIFTH over two months. Rankings move
+by up to four places between windows. Only SHIPPED holds the same position in both,
+which is the strongest argument for it -- not that it won, but that it never moved.
+
+### What to conclude
+
+Keep the shipped config. It is second in both windows, first in neither, and the
+only variant that does not depend on which two months you look at. Its margin over
+the two-month "winner" is within a single trade, and the winner is measurably worse
+where there is enough data to tell.
+
+Also worth stating plainly: +3.05% over seven weeks on $5,000 is **$152**. The
+strategy's economics at this account size are dominated by the position cap -- a
+$1,250 maximum position with a 0.5% stop risks roughly $6 per trade. Nothing here
+is wrong, but the absolute numbers will stay small until the account does.
