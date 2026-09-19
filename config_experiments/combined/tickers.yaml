@@ -418,7 +418,71 @@ tickers:
     # 16/78 bars/day (21%), $0.0M median daily $vol, $1.32 median close, 7.21% median range, from 2024-01-03
     # EXCLUDED: bar coverage 21% < 95%; $vol $0.0M < $5M
 
+  # --- Added 2026-09-19 at user request. All five cleared scripts/screen_liquidity.py
+  # on 275 sessions of Twelve Data history (100% bar coverage, $96M-$337M median
+  # daily dollar volume -- an order of magnitude more liquid than the small miners
+  # that make up most of this universe), and all trade well above the $10 tick-cost
+  # screen, so none of them is at risk of the spread eating its own edge.
+  #
+  # Note the history limit: these carry data from 2025-08-15 only, against ~2023-09
+  # for the rest of the universe. Any backtest starting before that date simply will
+  # not see them, so the 568-day holdout cannot evaluate these names.
 
+  PAAS:
+    benchmark: SIL
+    sector: silver_miner
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  WPM:
+    # Streamer rather than an operator -- it owns royalties on other people's mines,
+    # so it tracks the metal more closely than mining costs. GDX holds it heavily.
+    benchmark: GDX
+    sector: precious_metals_streamer
+    max_spread_pct: 0.10
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.0, 4.0]
+    volatility_category: moderate
+
+  HBM:
+    benchmark: COPX
+    sector: copper
+    max_spread_pct: 0.20
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 4.5]
+    volatility_category: normal
+
+  CCJ:
+    # The largest holding in URA, so the benchmark is close to a proxy for the name.
+    benchmark: URA
+    sector: uranium
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [2.5, 4.5]
+    volatility_category: normal
+
+  VALE:
+    # 1.95% median daily range, the quietest name in the universe -- iron ore major
+    # rather than a junior miner -- hence the low volatility category and a target
+    # scaled to match.
+    benchmark: PICK
+    sector: diversified_mining
+    max_spread_pct: 0.15
+    overnight_category: normal
+    overnight_position_multiplier: 1.0
+    manual_only: false
+    profit_target_pct: [1.5, 3.0]
+    volatility_category: low
   AMD:
     benchmark: SMH
     sector: semiconductors
