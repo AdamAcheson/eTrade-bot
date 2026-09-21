@@ -21,6 +21,7 @@ Backtest baselines to compare against (19-ticker holdout, 568 sessions):
 | 2026-09-16 | **-2.23%** | 1837 | 0 | $0 | 0.60 | benchmark confirmation (1172) | SIL closed above its VWAP on **0 of 78 bars**; GDX 2/78, SILJ 1/78 |
 | 2026-09-17 | -0.15% | 1831 | 3 | -$60.19 | 0.70 | low volume (797) | 3 trade(s) |
 | 2026-09-18 | -0.28% | 1774 | 2 | -$232.05 | 0.63 | benchmark confirmation (751) | 2 trade(s) |
+| 2026-09-21 | -0.83% | 2171 | 3 | +$35.01 | 0.67 | benchmark confirmation (1098) | 3 trade(s) |
 
 ## Routine reliability
 
@@ -121,4 +122,4 @@ tape was never up.
 
 ### Running tally
 
-6 sessions logged, 4 with trades, 2 with zero. Cumulative P&L **-$181.81** across 8 trades. Far too small a sample to compare against the backtest's ~30% zero-trade rate and 2.6 trades per active session; the point remains accumulation.
+7 sessions logged, 5 with trades, 2 with zero. Cumulative P&L **-$146.80** across 11 trades. Far too small a sample to compare against the backtest's ~30% zero-trade rate and 2.6 trades per active session; the point remains accumulation.
