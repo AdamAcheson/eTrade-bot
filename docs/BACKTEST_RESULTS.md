@@ -1789,3 +1789,95 @@ otherwise suits it best.
 **And the standing condition:** at the bull-regime rate of roughly $26/session
 (tuning) the PDT rule still reduces the account to approximately zero. Regime
 readiness is downstream of account structure.
+
+## Regime-scaled position sizing: tested and REJECTED (2026-09-22)
+
+The silver-trend effect above replicates out of sample, and a regime *filter* was
+already tested and rejected (you forgo too many days to capture a per-day premium).
+This tests the other direction: keep trading every day, but multiply the notional
+cap on qualifying days. `--regime-scale`, shipped config untouched.
+
+**Pre-registration caveat, stated because it matters.** The +5%/20-session threshold
+was chosen AFTER looking at holdout data, in the analysis in the previous section.
+The holdout is therefore no longer clean for this test. The controlled comparison
+below is what carries the conclusion, not the headline numbers.
+
+$5,000 account, base cap $2,000, costs on. 476 of 1,001 holdout trades (47.6%) and
+303 of 592 tuning trades (51.2%) fall on qualifying days.
+
+| holdout | trades | net | maxDD | DD% | ret/DD | $/session | avg notional |
+|---|---|---|---|---|---|---|---|
+| shipped | 1,001 | $3,164 | $270 | 5.40% | 11.7 | $5.57 | $1,978 |
+| regime 1.25x | 1,001 | $3,582 | $273 | 5.45% | 13.1 | $6.31 | $2,212 |
+| regime 1.50x | 1,001 | $3,965 | $299 | 5.97% | **13.3** | $6.98 | $2,445 |
+| regime 2.00x | 1,001 | $4,653 | $377 | 7.53% | 12.4 | $8.19 | $2,898 |
+| *uniform control* | 1,001 | $4,469 | $366 | 7.32% | 12.2 | $7.87 | $2,906 |
+
+| tuning | trades | net | maxDD | DD% | ret/DD | $/session | avg notional |
+|---|---|---|---|---|---|---|---|
+| shipped | 592 | $2,556 | $467 | 9.33% | 5.5 | $13.24 | $1,975 |
+| regime 1.25x | 592 | $2,964 | $489 | 9.77% | 6.1 | $15.36 | $2,225 |
+| regime 1.50x | 592 | $3,267 | $524 | 10.49% | 6.2 | $16.93 | $2,465 |
+| regime 2.00x | 592 | $3,774 | $595 | 11.89% | **6.3** | $19.55 | $2,923 |
+| *uniform control* | 592 | $3,589 | $697 | 13.94% | 5.2 | $18.60 | $2,967 |
+
+Every variant beats the base on net, all significant (p <= 0.02 paired). **That is
+leverage, not the regime.** Sizing up more makes more money; we already knew that
+from $1,250 -> $2,000.
+
+### The controlled test: regime-scaled vs the SAME average notional, applied flat
+
+The uniform control sets a single flat cap producing the same trade-weighted
+average notional, so the only difference is WHERE the size goes.
+
+| period | level | uniform | regime | difference | t | p |
+|---|---|---|---|---|---|---|
+| holdout | 1.5x-equiv ($2,476) | $3,837.58 | $3,965.35 | **+$127.77** | +0.67 | 0.466 |
+| holdout | 2.0x-equiv ($2,951) | $4,469.06 | $4,652.76 | **+$183.70** | +0.49 | 0.590 |
+| tuning | 1.5x-equiv ($2,512) | $3,231.86 | $3,266.65 | **+$34.79** | +0.18 | 0.821 |
+| tuning | 2.0x-equiv ($3,024) | $3,589.44 | $3,773.50 | **+$184.06** | +0.53 | 0.559 |
+
+**Positive in all four cells and significant in none of them.** Of the $1,489 that
+regime-2.0x gains over the base on the holdout, uniform leverage alone delivers
+$1,305 -- 88% of it. The regime component is 12%, and p = 0.59.
+
+**Verdict: do not adopt.** The standard in this file is that a change must be
+significant out of sample to ship, and this is not significant anywhere.
+
+### The one thing that did replicate, recorded without claiming it
+
+At matched exposure, regime-scaling produced LOWER maximum drawdown on both periods:
+
+| | uniform maxDD | regime maxDD | |
+|---|---|---|---|
+| holdout, 1.5x-equiv | $318 | **$299** | -6% |
+| tuning, 1.5x-equiv | $574 | **$524** | -9% |
+| tuning, 2.0x-equiv | $697 | **$595** | -15% |
+| holdout, 2.0x-equiv | $366 | $377 | +3% |
+
+Three of four favour the regime version, and the mechanism is coherent: less size in
+unfavourable regimes, and drawdowns cluster in unfavourable regimes. But maximum
+drawdown is a SINGLE-POINT statistic set by one bad sequence, three of four is not
+evidence, and the holdout 2.0x cell goes the other way. Recorded as an observation
+to re-test with more data, not as a finding.
+
+### Practical note on leverage
+
+These caps need margin the account may not have. Five concurrent positions at the
+qualifying-day cap:
+
+| variant | peak exposure on $5,000 | leverage |
+|---|---|---|
+| shipped ($2,000) | $10,000 | 2:1 |
+| regime 1.5x ($3,000) | $15,000 | 3:1 |
+| regime 2.0x ($4,000) | $20,000 | **4:1** |
+
+4:1 is exactly the Reg T day-trading buying power ceiling, and day-trading buying
+power requires a PDT account with $25,000 of equity. At the current account size
+none of these variants is executable, and under PDT the strategy earns approximately
+nothing at any leverage.
+
+**Running tally of tested and rejected: 24 point-in-time predictors, 6 chart
+patterns, 6 exit variants, 1 entry-gate removal, 1 regime filter, 1 regime-scaled
+sizing rule.** Two adopted, both mechanical: the 0.5% stop floor and the $10 price
+screen.
