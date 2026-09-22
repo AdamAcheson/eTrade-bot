@@ -1,9 +1,17 @@
 # Daily session replay log
 
-One row per trading session, appended by the scheduled daily replay (17:30 ET
-weekdays). The point is accumulation: a single session is noise -- 30% of holdout
-sessions took zero trades -- and only a month or more of these makes the live
-trade rate and rejection mix comparable to the backtest's.
+One row per trading session, appended by `scripts/daily_replay.py`. **Run it by
+hand after the close** -- the GitHub schedule was removed on 2026-09-18 because it
+never fired (see "Routine reliability" below). The point is accumulation: a single
+session is noise -- 30% of holdout sessions took zero trades -- and only a month or
+more of these makes the live trade rate and rejection mix comparable to the
+backtest's.
+
+**The `net P&L` column is on the replay's default $100,000 paper equity with
+$25,000 positions, NOT the ~$5,000 live account.** Every position hits the cap, so
+divide by 12.5 for the $5,000 / $2,000-cap basis (2026-09-22: $810.83 here is
+$64.72 there). To reproduce a row on the live basis:
+`python3 scripts/backtest.py --days 1 --starting-equity 5000 --max-position-size-dollars 2000 --max-position-pct-equity 1.0`
 
 Backtest baselines to compare against (19-ticker holdout, 568 sessions):
 
@@ -22,6 +30,7 @@ Backtest baselines to compare against (19-ticker holdout, 568 sessions):
 | 2026-09-17 | -0.15% | 1831 | 3 | -$60.19 | 0.70 | low volume (797) | 3 trade(s) |
 | 2026-09-18 | -0.28% | 1774 | 2 | -$232.05 | 0.63 | benchmark confirmation (751) | 2 trade(s) |
 | 2026-09-21 | -0.83% | 2171 | 3 | +$35.01 | 0.67 | benchmark confirmation (1098) | 3 trade(s) |
+| 2026-09-22 | +2.41% | 2122 | 5 | +$810.83 | 0.69 | low volume (1176) | 5 trade(s) |
 
 ## Routine reliability
 
@@ -122,4 +131,4 @@ tape was never up.
 
 ### Running tally
 
-7 sessions logged, 5 with trades, 2 with zero. Cumulative P&L **-$146.80** across 11 trades. Far too small a sample to compare against the backtest's ~30% zero-trade rate and 2.6 trades per active session; the point remains accumulation.
+8 sessions logged, 6 with trades, 2 with zero. Cumulative P&L **+$664.03** across 16 trades. Far too small a sample to compare against the backtest's ~30% zero-trade rate and 2.6 trades per active session; the point remains accumulation.
