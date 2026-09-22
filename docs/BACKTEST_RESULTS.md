@@ -1462,3 +1462,130 @@ Also worth stating plainly: +3.05% over seven weeks on $5,000 is **$152**. The
 strategy's economics at this account size are dominated by the position cap -- a
 $1,250 maximum position with a 0.5% stop risks roughly $6 per trade. Nothing here
 is wrong, but the absolute numbers will stay small until the account does.
+
+## Letting winners run: six exit variants (2026-09-22)
+
+Prompted by a target of $25/day on a $5,000 account. Sizing that target first: $25
+x 252 sessions is a **126% annual return**, against +38.0% on the holdout and a
+realistic ordinary-conditions rate of $5-7/day. Exit tuning cannot close a 4x gap,
+but a genuinely better exit is worth having regardless.
+
+Holdout, 568 days, $5,000 account, hard $2,000 cap, costs on:
+
+| variant | trades | net | max DD | >3R | >5R | mean R |
+|---|---|---|---|---|---|---|
+| **SHIPPED** (trail 1.0 ATR, arms at 1R) | 1,001 | **+$3,164.00** | 4.46% | 65 | 18 | +0.297 |
+| trail 1.5 ATR | 996 | $3,049.45 | 4.78% | 74 | 19 | +0.288 |
+| trail 2.0 ATR | 984 | $2,996.69 | 5.05% | **80** | **29** | +0.294 |
+| arms at +2R instead of +1R | 1,001 | $3,164.00 | 4.46% | 65 | 18 | +0.297 |
+| target scales with stop | 1,016 | **$799.75** | 5.02% | **0** | **0** | +0.108 |
+| no trailing stop at all | 914 | $2,612.77 | 5.28% | **92** | **38** | +0.267 |
+
+**Nothing beats the shipped setting, and the reason is instructive.** Widening the
+trail does exactly what it should -- trades above +5R go 18 -> 29 -> 38 as the trail
+loosens from 1.0 to 2.0 to none at all -- and net P&L falls anyway. The extra
+give-back on the many trades that would have exited near +1R costs more than the
+few extra runners are worth. The tail gets fatter and the total gets smaller.
+
+Two findings worth keeping separately:
+
+* **Arming the trail at +2R changes nothing at all** -- byte-identical results.
+  Every trade that reaches 1R either exits before 2R or has already had its stop
+  ratcheted past the point where the arming threshold binds. The parameter is
+  inert as configured.
+* **`scale_target_with_stop` is catastrophic**: net collapses to $799.75 and the
+  entire right tail disappears (ZERO trades above +3R, against 65). With a floored
+  stop, targeting a fixed multiple of actual risk sets targets so close that every
+  winner is capped. It should be left off.
+
+The honest conclusion: the current exit is at a local optimum on this data, and
+the "let winners run" lever has already been pulled as far as it pays.
+
+## Indicators tested and null: RSI and MACD (predictors 20-23)
+
+Measured the way the previous nineteen were -- feature computed AT ENTRY from bars
+up to and including the entry bar, correlated against realised R and win/loss on
+the 1,001 holdout trades. No re-running, no re-fitting.
+
+| feature | vs realised R | vs win/loss |
+|---|---|---|
+| 5-minute RSI(14) | +0.009 (t=+0.29) | -0.018 (t=-0.57) |
+| daily RSI(14), prior close | -0.008 (t=-0.25) | +0.008 (t=+0.24) |
+| 5-minute MACD histogram | +0.059 (t=+1.86) | +0.054 (t=+1.72) |
+| 5-minute MACD above signal | +0.063 (t=+1.99) | +0.049 (t=+1.54) |
+| daily MACD histogram | -0.003 (t=-0.09) | +0.001 (t=+0.03) |
+| daily MACD above signal | +0.009 (t=+0.27) | -0.013 (t=-0.42) |
+
+All null. Every filter built on them loses money -- requiring 5-min MACD above
+signal costs $389, requiring daily MACD above signal costs $1,378, and the daily
+RSI thresholds cost between $177 and $1,940. Same shape as every other filter
+tested: the trades that look worst carry the right tail.
+
+### A measurement error, recorded because it nearly became a finding
+
+The first pass ranked tied values by input position rather than assigning the
+AVERAGE rank across a tied group. Continuous features were barely affected, but a
+0/1 flag is nothing but ties -- and `win/loss` is itself binary, so every
+correlation against it was corrupted. It reported daily RSI at rho=+0.129, t=+4.07
+against win/loss, which was written up as "the first non-null result in twenty-one
+predictors". Corrected, it is **+0.008, t=+0.24**. The claim was withdrawn.
+
+The tell was that the filter table contradicted the correlation: a 50%-versus-49%
+win-rate split cannot produce a rank correlation of 0.34. When a correlation and a
+direct count disagree, the count is right.
+
+## Chart patterns: real on the holdout, reversed on the other period
+
+Of twenty classical patterns, six are testable here. Ten are bearish and the system
+cannot short; three (cup and handle, inverse head and shoulders, triple bottom)
+need more bars than a 78-bar session contains. Every detector threshold was fixed
+from the textbook description BEFORE any result was seen -- pattern detectors have
+enough free parameters to manufacture any finding, and pre-registration is the only
+thing separating this from curve-fitting.
+
+Holdout, 1,001 trades:
+
+| pattern | present | mean R | win% |
+|---|---|---|---|
+| pennant | 32 | **+0.740** | 66% |
+| falling wedge | 122 | +0.501 | 55% |
+| bull flag | 56 | +0.499 | 59% |
+| ascending triangle | 21 | +0.535 | 43% |
+| double bottom | 453 | +0.255 | 48% |
+| rectangle | 308 | +0.227 | 46% |
+| *all trades* | 1,001 | +0.297 | 49% |
+
+The three continuation patterns form a coherent cluster -- all are "sharp rise,
+then orderly pause" -- and together they are the strongest single result this
+project has produced:
+
+| continuation cluster | trades | mean R | win% |
+|---|---|---|---|
+| present | 187 | **+0.487** | 56% |
+| absent | 814 | +0.253 | 47% |
+
+t = +2.36. Then the same measurement on the tuning period:
+
+| tuning period | trades | mean R | win% |
+|---|---|---|---|
+| present | 116 | **-0.012** | 42% |
+| absent | 435 | +0.426 | 51% |
+
+t = **-1.90**. It does not merely fail to replicate, it reverses, and nearly
+significantly. Individually: bull flag +0.021, pennant +0.013, falling wedge
+-0.019 -- all flat. Two further marks against it even without the reversal: six
+patterns were tested, so a Bonferroni threshold is |t| > 2.64 and +2.36 does not
+clear it; and the samples are thin (32 pennants).
+
+Not adopted. The detectors and the measurement harness are kept, so re-testing on
+future data costs nothing.
+
+### The pattern across all of it
+
+Twenty-three point-in-time predictors, six chart patterns, six exit variants, and
+the earlier score rebuild. The only changes that have ever survived out of sample
+are the two adopted on 2026-09-18 -- the stop floor and the price screen -- and
+both work for MECHANICAL reasons (noise-band stops, tick cost) rather than
+predictive ones. Everything that tried to predict which trades would work has
+failed, and every filter that removed trades cost money, because the right tail
+lives in the trades that look worst at entry.
