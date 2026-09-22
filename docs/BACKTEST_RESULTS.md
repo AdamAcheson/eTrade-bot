@@ -11,6 +11,40 @@
 Numbers here come from `scripts/backtest.py` against the cached 5-minute bars in
 `data_cache/historical/`. Journals are gitignored, so this file is the record.
 
+## Per-day figures: which denominator
+
+**Two different denominators appear in this file, and they are not interchangeable.**
+
+* **Sessions simulated** -- every trading day in the window, including days the bot
+  took no trade at all. The holdout is **568 sessions**; only **403 of them (71%)
+  produced a trade**, so the bot is flat on 29% of days.
+* **Days with a trade** -- used for the "per day" column of the paired comparison
+  tables below, where the population is days the two configs actually differ.
+
+A per-day figure from the second denominator is roughly **1.41x** the first on the
+holdout. It is a valid statement about days that traded; it is NOT a daily rate and
+**must not be multiplied by 252** to annualise.
+
+For the shipped config on the holdout the canonical rates are:
+
+| basis | value |
+|---|---|
+| net P&L, 568 sessions, $5,000 start, $2,000 cap | **$3,164.00** |
+| per session (568) | **$5.57** |
+| per day that traded (403) | $7.85 |
+| simple annualised, 252 sessions/yr | **28.1%** |
+| compounded CAGR over 819 calendar days (2.24y) | **24.4%** |
+| total return over the window | 63.3% |
+
+The `annualised` / CAGR columns in the tables below are compounded on CALENDAR time
+and are unaffected by this distinction -- they were computed correctly.
+
+**Paired t-statistics are also unaffected.** Adding the zero-difference sessions
+scales the mean and the standard error identically, so t is invariant to the choice
+(verified: holdout gate-off vs shipped gives t=-0.25 on 408 days and t=-0.25 on 568).
+Every significance conclusion in this file stands as written; only the reported
+mean-per-day magnitudes are denominator-dependent.
+
 Two periods, split at 2025-12-17:
 
 * **Tuning period** — the most recent 183 trading days. Every parameter in
@@ -1466,9 +1500,19 @@ is wrong, but the absolute numbers will stay small until the account does.
 ## Letting winners run: six exit variants (2026-09-22)
 
 Prompted by a target of $25/day on a $5,000 account. Sizing that target first: $25
-x 252 sessions is a **126% annual return**, against +38.0% on the holdout and a
-realistic ordinary-conditions rate of $5-7/day. Exit tuning cannot close a 4x gap,
-but a genuinely better exit is worth having regardless.
+x 252 sessions is a **126% annual return**, against **+28.1% on the holdout** (see
+"Per-day figures" above) and a measured rate of **$5.57 per session**. Exit tuning
+cannot close a 4.5x gap, but a genuinely better exit is worth having regardless.
+
+> CORRECTED 2026-09-22. This paragraph previously read "+38.0% on the holdout and a
+> realistic ordinary-conditions rate of $5-7/day", comparing that to a 126% ANNUAL
+> return. Two things were wrong. The +38.0% is the **total** return of a DIFFERENT
+> configuration -- `sz_ho_25`, the 25%-of-equity cap run (976 trades, $1,897.65 on
+> $5,000 = 37.95%) -- not the $2,000-cap config this section is about, and a total
+> return over 2.24 years was set against an annual rate. For the config actually
+> under discussion ($3,164.00, 1,001 trades) the holdout is 63.3% total, **28.1%/yr
+> simple, 24.4% compounded**, i.e. **$5.57 per session**. The conclusion is unchanged
+> and slightly strengthened: the gap to $25/day is 4.5x, not 4x.
 
 Holdout, 568 days, $5,000 account, hard $2,000 cap, costs on:
 
