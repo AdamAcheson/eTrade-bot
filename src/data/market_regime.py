@@ -91,3 +91,33 @@ def qualifying_days(symbols: Iterable[str], mode: str,
                     good.add(day)
         per_symbol.append(good)
     return set.intersection(*per_symbol) if per_symbol else set()
+
+
+def trend_days(symbol: str, lookback: int = 20, threshold_pct: float = 5.0,
+               cache_dir: str = REFERENCE_CACHE_DIR) -> Set[str]:
+    """Dates on which `symbol` had risen more than `threshold_pct` over the
+    `lookback` sessions ENDING AT THE PRIOR CLOSE.
+
+    Same lookahead discipline as qualifying_days: the window ends at yesterday's
+    close, so the answer is settled before today's first entry window. Using
+    today's close here would be the fake-result trap described at the top of this
+    module -- it would amount to sizing up on days already known to be good.
+
+    Dates without a full `lookback`+1 sessions of prior history are excluded: an
+    unknown regime is not a qualifying one.
+    """
+    if lookback < 1:
+        raise ValueError(f"lookback must be >= 1, got {lookback}")
+    series = fetch_daily(symbol, cache_dir=cache_dir)
+    days = sorted(series)
+    good: Set[str] = set()
+    for i, day in enumerate(days):
+        if i < lookback + 1:
+            continue
+        start = series[days[i - 1 - lookback]]["close"]
+        end = series[days[i - 1]]["close"]
+        if start <= 0:
+            continue
+        if (end / start - 1.0) * 100.0 > threshold_pct:
+            good.add(day)
+    return good

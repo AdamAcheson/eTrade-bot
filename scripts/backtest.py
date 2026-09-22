@@ -185,6 +185,26 @@ def main() -> int:
              "entry window, so neither peeks at the session's outcome.",
     )
     parser.add_argument(
+        "--regime-scale", type=float, default=None,
+        help="EXPERIMENT override: multiply the notional position cap by this factor on days "
+             "when --regime-scale-symbol had risen more than --regime-scale-threshold%% over the "
+             "previous --regime-scale-lookback sessions (window ends at the PRIOR close, so the "
+             "decision is settled before the first entry window). Sizes up in a favourable "
+             "regime rather than sitting out an unfavourable one.",
+    )
+    parser.add_argument(
+        "--regime-scale-symbol", default="SLV",
+        help="Reference instrument for --regime-scale (default SLV).",
+    )
+    parser.add_argument(
+        "--regime-scale-threshold", type=float, default=5.0,
+        help="Prior-window return in %% above which --regime-scale applies (default 5.0).",
+    )
+    parser.add_argument(
+        "--regime-scale-lookback", type=int, default=20,
+        help="Sessions in the --regime-scale trend window (default 20).",
+    )
+    parser.add_argument(
         "--regime-symbols", default="DIA,SLV",
         help="Comma-separated reference instruments for --regime-filter.",
     )
@@ -539,7 +559,25 @@ def main() -> int:
     seen_signals = 0
     entries = 0
 
+    scale_days: set = set()
+    base_cap = config.risk["sizing"]["max_position_size_dollars"]
+    if args.regime_scale is not None:
+        from data.market_regime import trend_days
+        scale_days = trend_days(
+            args.regime_scale_symbol, args.regime_scale_lookback, args.regime_scale_threshold,
+        )
+        hit = len(scale_days & set(all_days))
+        print(f"  regime scale {args.regime_scale}x on {args.regime_scale_symbol} "
+              f"+{args.regime_scale_threshold}%/{args.regime_scale_lookback}d: "
+              f"{hit} of {len(all_days)} days size up "
+              f"(${base_cap:,.0f} -> ${base_cap * args.regime_scale:,.0f})")
+
     for day in all_days:
+        if args.regime_scale is not None:
+            cap = base_cap * args.regime_scale if day in scale_days else base_cap
+            config.risk["sizing"]["max_position_size_dollars"] = cap
+            config.risk["safety"]["max_position_size_dollars"] = cap
+
         # Without this, RiskManager's daily counters (trades_today, consecutive
         # losses, cooldowns) never reset across a multi-day backtest -- confirmed:
         # max_trades_per_day silently blocked every signal after the 3rd trade of
