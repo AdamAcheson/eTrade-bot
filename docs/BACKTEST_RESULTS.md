@@ -1589,3 +1589,69 @@ both work for MECHANICAL reasons (noise-band stops, tick cost) rather than
 predictive ones. Everything that tried to predict which trades would work has
 failed, and every filter that removed trades cost money, because the right tail
 lives in the trades that look worst at entry.
+
+## Would a wider stop have rescued the losers? (2026-09-22)
+
+The question: of the trades that were stopped out, how many would have gone on to
+win with more room? Two parts, kept apart because one is a fact and the other is
+an assumption.
+
+### What actually happened after the stop
+
+Replaying the bars after each stop-out, on the 568-day holdout:
+
+| of 426 stopped-out trades | count | share |
+|---|---|---|
+| price later traded back ABOVE ENTRY | **172** | **40%** |
+| price later reached the original TARGET | **2** | **0.5%** |
+
+So 40% of stop-outs were "right eventually" -- a real and uncomfortable number --
+but essentially none of them went on to do what the trade was betting on. The
+recoveries were shallow: price crept back over entry and stalled.
+
+A simplified replay (stop/target/end-of-day only, no trailing stop, risk-constant
+sizing) suggested widening peaked around 1.25-1.5x and gave everything back by
+3.0x. That was enough to justify a proper test, not to act on.
+
+### The proper test: 1.25x stop width, both periods
+
+ATR multiplier 0.85 -> 1.0625 AND the floor 0.5% -> 0.625%, so whichever rule binds
+on a given trade is widened. $5,000 account, $2,000 cap, costs on.
+
+| | trades | net | max DD | stop-out rate | >3R | >5R | mean R |
+|---|---|---|---|---|---|---|---|
+| holdout, baseline | 1,001 | +$3,164.00 | 4.46% | 43% | 65 | **18** | +0.297 |
+| holdout, 1.25x | 997 | +$3,271.74 | 5.31% | 39% | 57 | **7** | +0.261 |
+| tuning, baseline | 592 | +$2,556.24 | 6.66% | 44% | 45 | **14** | +0.341 |
+| tuning, 1.25x | 585 | -$89.58 vs base | 8.33% | 42% | 34 | **4** | +0.289 |
+
+Holdout +$107.73, tuning -$89.58. **Opposite signs, both trivial, neither close to
+significant** (t=+0.37 and t=-0.46). The day-level split is the tell: 69 better
+days against 229 worse on the holdout. The change makes most days worse and
+scrapes a small net gain off a handful.
+
+The mechanism works exactly as predicted and still loses. The stop-out rate does
+fall, 43% -> 39%, so wider stops ARE rescuing trades. They come back as small
+winners rather than runners, while risk-constant sizing shrinks every position, so
+the genuine runners that would have happened anyway are worth less. Trades above
++5R collapse 18 -> 7 and 14 -> 4; mean R falls in both periods.
+
+Not adopted. This is the fifth exit-side change to show the same shape -- tighter
+trail, wider trail, no trail, gap-day relaxation, wider stops. Every one moved the
+distribution and every one cost tail.
+
+### Correction: the 0.5% stop floor is now nearly vestigial
+
+Measured on the current shipped config, stop widths as a percent of entry price are
+p10 = 0.522%, p50 = 0.530%, p90 = 0.885%. **Only 6 of 1,001 stops sit anywhere near
+the 0.5% floor** -- the ATR stop is wider almost every time.
+
+The floor was adopted on 2026-09-18 and was genuinely doing the work then: that
+measurement was taken with `min_price: 0`, when over half the traded notional sat
+in sub-$10 miners whose 5-minute ATR collapsed in quiet afternoons. **The $10 price
+screen, adopted hours later, removed exactly those names and made the floor
+redundant.** The two changes overlap far more than the earlier write-ups imply, and
+the floor's +17% holdout credit should not be read as additive with the screen's.
+
+It is harmless where it stands and worth keeping as insurance should the universe
+ever move cheaper, but it is not currently earning its documentation.
