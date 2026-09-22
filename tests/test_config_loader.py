@@ -155,3 +155,37 @@ def test_shipped_floor_actually_reaches_the_stop_calculation():
     stop = final_stop_price(entry, atr_value=0.0526, atr_multiplier=0.85,
                             swing_low=None, min_stop_distance=entry * pct / 100.0)
     assert (entry - stop) / entry >= 0.005 - 1e-9
+
+
+def test_scale_target_with_stop_ships_off():
+    """Pins a parameter with a measured catastrophic downside.
+
+    Measured on the 568-day holdout (2026-09-22, $5,000 account, $2,000 cap):
+
+        shipped (fixed profit_target_pct)   net +$3,164.00   65 trades >3R, 18 >5R
+        scale_target_with_stop: true        net   +$799.75    0 trades >3R,  0 >5R
+
+    The mechanism: with stops.min_stop_pct_of_price flooring risk-per-share,
+    targeting a fixed multiple of the ACTUAL stop distance puts the target so close
+    to entry that every winner is capped before it can run. The strategy earns 96%
+    of its profit from trades above +3R, and this setting produces NONE -- so it
+    does not merely reduce the edge, it removes the part the edge lives in.
+
+    Turning it on is therefore never a tuning decision. If a future change to stop
+    sizing makes it worth revisiting, re-run the holdout first and change this test
+    deliberately.
+    """
+    config = load_config()
+    assert config.strategy["reward_risk"]["scale_target_with_stop"] is False
+
+
+def test_scale_target_with_stop_is_off_in_every_experiment_book_too():
+    """The experiment books symlink strategy.yaml back to config/, so the universe
+    is the only variable between them. If this ever diverges, that invariant has
+    broken and a cross-book comparison would silently stop being like-for-like."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for book in ("config", "config_experiments/xsector",
+                 "config_experiments/combined", "config_experiments/illiquid"):
+        cfg = load_config(os.path.join(root, book))
+        assert cfg.strategy["reward_risk"]["scale_target_with_stop"] is False, book
