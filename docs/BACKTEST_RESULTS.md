@@ -1699,3 +1699,93 @@ the floor's +17% holdout credit should not be read as additive with the screen's
 
 It is harmless where it stands and worth keeping as insurance should the universe
 ever move cheaper, but it is not currently earning its documentation.
+
+## Silver regime: how the strategy behaves in a metals bull market (2026-09-22)
+
+Prompted by two questions: is the strategy secretly a long-silver bet, and how
+ready is it for a silver bull market. Sessions are classified by SLV's return over
+the 20 sessions ENDING AT THE PRIOR CLOSE (`data.market_regime.trend_days`), so the
+label is settled before the first entry window. Classifying on today's close would
+be the lookahead trap -- it would amount to sizing up on days already known to be
+good.
+
+### It is not a disguised long-silver position
+
+SLV peaked 2026-01-28 and fell 52.3% to its 2026-07-16 trough. Over the 162
+sessions after that peak the shipped config earned **$1,418.05, $8.75/session**,
+against **$7.18/session** in the 599 sessions before it. Difference not significant
+(t=+0.38). The strategy traded through the entire decline without breaking.
+
+**That evidence is in-sample.** The whole post-peak stretch sits inside the tuning
+window. The holdout contains no post-peak data, so discount it accordingly.
+
+### The regime effect itself DOES replicate out of sample
+
+Holdout only, all 568 sessions including no-trade days:
+
+| silver regime (prior 20 sessions) | sessions | net | $/session |
+|---|---|---|---|
+| risen more than +5% | 212 | $1,876.08 | **$8.85** |
+| everything else | 356 | $1,287.93 | $3.62 |
+
+Difference **+$5.23/session**, t=+1.61, **permutation p = 0.040** (5,000 shuffles,
+seed 7). The t is weak because daily P&L is fat-tailed; the permutation test is the
+appropriate one. After 24 null predictors, 6 chart patterns and 6 exit variants,
+this is the only effect in this project that has replicated out of sample.
+
+The mechanism is the right one -- it does not win more often, it wins bigger:
+
+| | win rate | mean R | >3R rate |
+|---|---|---|---|
+| holdout, silver bull | 51% | **+0.376** | 6.7% |
+| holdout, flat | 46% | +0.218 | 6.1% |
+| holdout, silver bear | 47% | +0.266 | 7.4% |
+| tuning, silver bull | 50% | **+0.457** | **10.6%** |
+| tuning, flat | 45% | +0.121 | 4.5% |
+| tuning, silver bear | 51% | +0.287 | 4.6% |
+
+For a strategy where 6.5% of trades carry all the profit, fattening the right tail
+is exactly the shape that matters.
+
+### Nothing in the config throttles a hot streak
+
+Checked every cap that could bind when opportunity is abundant (tuning period):
+
+| constraint | behaviour on silver-bull days |
+|---|---|
+| `max_trades_per_day: 15` | **never reached** -- busiest day was 14, zero days at the cap |
+| `max_concurrent_positions: 5` | all five full only **5.5%** of market minutes; reached at all on 30% of bull days |
+| chase rule (`max_atr_above_vwap: 3.0`) | fires on 2.99% of bar-evaluations vs 2.16% in flat regimes |
+
+The chase rule was the expected culprit -- a parabolic move should push names past 3
+ATR above VWAP and get them refused. It does not bind meaningfully: measured against
+entries actually taken it is *less* restrictive in a bull regime (8.5x the entry
+count, against 14.2x in flat regimes), because the funnel widens faster than the
+filter tightens. Entry candidates go from 0.15% of evaluations in flat regimes to
+**0.35% in bull**, as volume rejections fall from 28.5% to 20.4%.
+
+### What actually caps the upside
+
+**The position cap.** It binds on 99% of trades, so in a bull market P&L is limited
+by dollars, not by opportunities. January 2026 -- the blow-off month -- produced
+**$1,189.23 over 20 sessions, $59.46/session** at a $5,000 account with a $2,000 cap.
+
+**Being flat overnight.** Decomposing every name-day in the traded universe into the
+part the strategy can reach and the part it cannot:
+
+| silver regime | overnight gap | intraday open->close | name-days |
+|---|---|---|---|
+| bull | **+0.145%** | **-0.037%** | 6,260 |
+| flat | +0.268% | -0.077% | 6,667 |
+| bear | +0.387% | +0.200% | 2,681 |
+
+In a silver bull the average miner gaps up and then fades: the entire positive drift
+happens overnight, and the session the bot actually trades is a slight negative
+drag. The strategy still profits because it is selective -- it takes the few names a
+day where intraday momentum genuinely continues -- but this is the structural
+ceiling of a flat-overnight design, and it is worst in precisely the regime that
+otherwise suits it best.
+
+**And the standing condition:** at the bull-regime rate of roughly $26/session
+(tuning) the PDT rule still reduces the account to approximately zero. Regime
+readiness is downstream of account structure.
