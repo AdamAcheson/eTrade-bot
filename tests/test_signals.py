@@ -327,3 +327,35 @@ def test_manual_only_security_never_auto_entered(config):
     signal = evaluate_ticker(ctx, config.strategy, config.risk)
     assert signal.decision == Decision.REJECTED
     assert signal.rejection_reason == RejectionReason.REJECTED_MANUAL_ONLY
+
+
+# --- sector confirmation can be disabled for testing ---------------------------
+# It is the largest single rejection reason in the system, so it needs to be
+# switchable off to measure what it costs -- but the SHIPPED default must stay on.
+
+def test_benchmark_confirmation_passes_everything_when_both_halves_disabled():
+    from strategy.benchmark import benchmark_confirmation
+    from factories import base_bench_snapshot, base_bench_bars
+    snap = base_bench_snapshot(last_price=90.0, vwap=100.0)   # well below its VWAP
+    res = benchmark_confirmation(snap, base_bench_bars(),
+                                 require_price_above_vwap=False,
+                                 require_ema_alignment=False,
+                                 require_no_fresh_intraday_low=False)
+    assert res.confirmed
+
+
+def test_benchmark_below_vwap_is_still_refused_by_default():
+    """The shipped behaviour: a benchmark under its own VWAP blocks the trade."""
+    from strategy.benchmark import benchmark_confirmation
+    from factories import base_bench_snapshot, base_bench_bars
+    snap = base_bench_snapshot(last_price=90.0, vwap=100.0)
+    res = benchmark_confirmation(snap, base_bench_bars(), require_ema_alignment=False)
+    assert not res.confirmed
+    assert res.reason == "benchmark_below_vwap"
+
+
+def test_shipped_config_keeps_sector_confirmation_on():
+    from config_loader import load_config
+    bc = load_config().strategy["benchmark_confirmation"]
+    assert bc["require_price_above_vwap"] is True
+    assert bc["require_no_fresh_intraday_low"] is True

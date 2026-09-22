@@ -258,6 +258,23 @@ def main() -> int:
              "whole shares, which bites hardest on expensive tickers.",
     )
     parser.add_argument(
+        "--no-benchmark-confirmation", action="store_true",
+        help="EXPERIMENT override: disable the sector-confirmation gate entirely -- both "
+             "the benchmark-above-VWAP requirement and the fresh-intraday-low check. This "
+             "is the largest single rejection reason in the system, so expect a much "
+             "higher trade count.",
+    )
+    parser.add_argument(
+        "--no-benchmark-vwap", action="store_true",
+        help="EXPERIMENT override: drop only the benchmark-above-VWAP half of sector "
+             "confirmation, keeping the fresh-intraday-low check.",
+    )
+    parser.add_argument(
+        "--no-benchmark-fresh-low", action="store_true",
+        help="EXPERIMENT override: drop only the fresh-intraday-low half of sector "
+             "confirmation, keeping the benchmark-above-VWAP check.",
+    )
+    parser.add_argument(
         "--no-chase-rule", action="store_true",
         help="EXPERIMENT override: disable the do-not-chase rule entirely (in-memory only).",
     )
@@ -340,6 +357,7 @@ def main() -> int:
         args.min_stop_pct is not None,
         args.spread_ticks is not None, args.impact_bps is not None, args.commission is not None,
         args.min_price is not None,
+        args.no_benchmark_confirmation, args.no_benchmark_vwap, args.no_benchmark_fresh_low,
         args.gap_day_pct is not None, args.gap_day_rvol is not None,
         args.score_bump is not None,
     ])
@@ -405,6 +423,13 @@ def main() -> int:
             if args.gap_day_rvol is not None:
                 gd["min_relative_volume"] = args.gap_day_rvol
             print(f"  eligibility.gap_day = {gd}")
+        bc = config.strategy["benchmark_confirmation"]
+        if args.no_benchmark_confirmation or args.no_benchmark_vwap:
+            bc["require_price_above_vwap"] = False
+            print("  benchmark_confirmation.require_price_above_vwap = False")
+        if args.no_benchmark_confirmation or args.no_benchmark_fresh_low:
+            bc["require_no_fresh_intraday_low"] = False
+            print("  benchmark_confirmation.require_no_fresh_intraday_low = False")
         if args.min_price is not None:
             config.strategy["eligibility"]["min_price"] = args.min_price
             print(f"  eligibility.min_price = {args.min_price}")
