@@ -42,6 +42,10 @@ from typing import Callable, List, Optional, Tuple
 PAPER_PORTS = {7497: "TWS paper", 4002: "IB Gateway paper"}
 LIVE_PORTS = {7496: "TWS LIVE", 4001: "IB Gateway LIVE"}
 
+# ib_async Ticker.marketDataType: what IBKR actually delivered
+MARKET_DATA_TYPES = {1: "live", 2: "frozen (last live price, market closed)",
+                     3: "delayed", 4: "delayed-frozen (market closed)"}
+
 ACCOUNT_TAGS = ("AccountType", "NetLiquidation", "TotalCashValue", "AvailableFunds",
                 "BuyingPower", "DayTradesRemaining", "Cushion")
 
@@ -125,6 +129,9 @@ def run(ib, host: str, port: int, client_id: int, symbol: str,
     out(f"  PASS  conId {contract.conId} on {contract.primaryExchange or contract.exchange}")
 
     # -- 3. live quote, falling back to delayed -----------------------------------
+    # Report the type IBKR actually DELIVERED, not the type requested: with TWS's
+    # "Auto-fallback to delayed market data" setting ticked, a request for live data
+    # can quietly come back delayed.
     out("\nQuote:")
     got_quote = False
     for mdt, label in ((1, "live"), (3, "delayed")):
@@ -134,8 +141,9 @@ def run(ib, host: str, port: int, client_id: int, symbol: str,
         bid, ask, last = _num(ticker.bid), _num(ticker.ask), _num(ticker.last)
         ib.cancelMktData(contract)
         if any(v is not None and v > 0 for v in (bid, ask, last)):
-            out(f"  PASS  {label}: bid {bid}  ask {ask}  last {last}")
-            if label == "delayed":
+            got = MARKET_DATA_TYPES.get(getattr(ticker, "marketDataType", mdt), "unknown")
+            out(f"  PASS  asked for {label}, received {got}: bid {bid}  ask {ask}  last {last}")
+            if got.startswith("delayed"):
                 out("        Only DELAYED data is available. The bot needs live bars; either add a "
                     "market data subscription in IBKR, or keep Twelve Data for bars.")
             got_quote = True

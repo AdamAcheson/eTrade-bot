@@ -34,13 +34,14 @@ class FakeIB:
     is absent, so calling one would raise AttributeError and fail the test."""
 
     def __init__(self, *, connect_error=None, accounts=("DU1234567",), quote=(10.0, 10.02, 10.01),
-                 bars=True, api_refused=False):
+                 bars=True, api_refused=False, delivered_type=None):
         self.errorEvent = _Event()
         self.connect_error = connect_error
         self._accounts = list(accounts)
         self.quote = quote
         self._bars = bars
         self.api_refused = api_refused
+        self.delivered_type = delivered_type
         self.connect_kwargs = None
         self.disconnected = False
 
@@ -66,7 +67,9 @@ class FakeIB:
 
     def reqMktData(self, contract, *a):
         bid, ask, last = self.quote
-        return SimpleNamespace(bid=bid, ask=ask, last=last)
+        # with TWS auto-fallback on, a live request can come back delayed
+        return SimpleNamespace(bid=bid, ask=ask, last=last,
+                               marketDataType=self.delivered_type or self.mdt)
 
     def cancelMktData(self, contract):
         pass
@@ -152,3 +155,22 @@ def test_missing_bars_fail():
 @pytest.mark.parametrize("acct,paper", [("DU123", True), ("du999", True), ("U123", False), ("", False)])
 def test_looks_like_paper(acct, paper):
     assert ibkr_check.looks_like_paper(acct) is paper
+
+
+def test_live_request_answered_with_delayed_data_is_called_delayed():
+    # TWS "Auto-fallback to delayed market data" ticked, no live subscription
+    code, text = _run(FakeIB(delivered_type=3))
+    assert "asked for live, received delayed" in text
+    assert "Only DELAYED data is available" in text
+
+
+def test_live_data_is_reported_as_live():
+    _, text = _run(FakeIB())
+    assert "asked for live, received live" in text
+    assert "Only DELAYED" not in text
+
+
+def test_frozen_after_close_is_not_mistaken_for_delayed():
+    _, text = _run(FakeIB(delivered_type=2))
+    assert "received frozen" in text
+    assert "Only DELAYED" not in text
