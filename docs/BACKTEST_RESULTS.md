@@ -1881,3 +1881,88 @@ nothing at any leverage.
 patterns, 6 exit variants, 1 entry-gate removal, 1 regime filter, 1 regime-scaled
 sizing rule.** Two adopted, both mechanical: the 0.5% stop floor and the $10 price
 screen.
+
+## Position sizing: the risk model is inert at this account size (2026-09-23)
+
+`src/risk/position_sizing.py` computes three candidate share counts and takes the
+smallest:
+
+1. **risk budget** — `floor(risk_dollars / (entry − stop))`, where `risk_dollars =
+   equity × max_account_risk_per_trade` (0.75%, so **$37.50** on $5,000). This is
+   the risk-parity rule the design is built on: a wider stop buys fewer shares, so
+   every trade risks the same dollars.
+2. **notional cap** — `floor(max_position_size_dollars / entry_price)`
+3. **percent-of-equity cap** — `floor(equity × max_position_size_pct_equity / entry_price)`
+
+**Rule 1 almost never wins.** Across the 1,001 holdout trades, at $5,000 equity with
+a $2,000 cap:
+
+| constraint that actually set the share count | trades |
+|---|---|
+| $2,000 notional cap | **987 (98.6%)** |
+| 0.75% risk budget | 14 (1.4%) |
+| percent-of-equity cap | 0 |
+
+So the consequence:
+
+| | value |
+|---|---|
+| intended risk per trade | $37.50 (0.75% of equity) |
+| actual risk per trade, median | **$10.54** |
+| actual risk per trade, mean | $12.59 |
+| median trade as % of equity | **0.21%**, against 0.75% intended |
+
+Every backtest in this file was run with the risk model switched off in practice.
+Position size is `cap / price` — arithmetic on share price, not on risk. That is why
+a $12 stock gets 160 shares and a $26 stock gets 77.
+
+This retro-explains two earlier results. Raising the cap $1,250 → $2,000 scaled
+returns almost linearly because **the cap IS the sizing system**; and regime-scaled
+sizing came out as 88% pure leverage for the same reason.
+
+### Why the crossover is a cliff, not a ramp
+
+Raising the notional cap does not hand control back gradually:
+
+| notional cap | trades where the risk budget binds |
+|---|---|
+| $2,000 | 1% |
+| $4,000 | 9% |
+| $6,000 | 23% |
+| $7,000 | 42% |
+| $7,500 | **100%** |
+
+The reason is the 0.5% stop floor. It sets the stop for nearly every trade, so
+risk-per-share is a near-constant **percentage** of price (median 0.530%, p25 0.522%,
+p75 0.599%). Both candidate share counts are then `something / price`, price cancels,
+and the crossover cap is the same for a $12 stock as for a $120 one:
+
+```latex
+\text{crossover cap} = \frac{\text{risk budget}}{\text{risk per share} / \text{price}}
+= \frac{\$37.50}{0.00530} \approx \$7,\!078
+```
+
+### The binding constraint is not the one in the config
+
+`max_position_size_pct_equity: 1.0` caps any position at 100% of $5,000 = **$5,000**,
+which sits *below* the $7,078 crossover. **At this equity the risk budget can never
+bind, whatever the notional cap is set to.**
+
+For the risk model to govern rather than decorate:
+
+| percent-of-equity cap | equity required |
+|---|---|
+| 100% | **$7,078** |
+| 25% (the shipped value) | **$28,310** |
+
+Both numbers land on the same wall as everything else: five concurrent positions at a
+cap large enough to matter is multiples of a $5,000 account, and day-trading buying
+power needs $25,000 of PDT equity.
+
+**This is a documentation defect as much as a design one.** The briefing doc presents
+0.75%-of-equity risk sizing as the live control. It is not one at this account size;
+`max_position_size_dollars` is. Whichever way it gets resolved — raise the caps, or
+accept that the notional cap is the real rule — the risk parameter should stop being
+described as if it governs.
+
+Not changed here. Recorded so the choice is made deliberately rather than inherited.
