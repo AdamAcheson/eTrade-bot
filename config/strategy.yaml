@@ -90,16 +90,22 @@ benchmark_confirmation:
 
 setups:
   # ORB_PULLBACK_CONTINUATION is the setup this strategy was originally designed
-  # around; VWAP_RECLAIM is the fallback tried only when it doesn't match. Now
-  # DISABLED: once a confirmation-window bug that had been starving ORB of matches
-  # was fixed (it required the confirmation candle to be the single most-recently-
-  # closed bar), ORB finally got a real sample -- and lost money. Over 183 trading
-  # days: ORB 47 trades, 12.8% win rate, -$2,092.83; VWAP_RECLAIM 89 trades, 22.5%
-  # win rate, +$5,736.72. Disabling ORB took the portfolio from +$3,643.88 to
-  # +$7,904.23, half from removing ORB's own losses and half from un-blocking 29
-  # VWAP_RECLAIM trades it had been crowding out (max_concurrent_positions is 1,
-  # so a mediocre setup does not merely underperform -- it displaces better ones).
-  # Set true to re-enable; scripts/backtest.py --disable-orb overrides either way.
+  # around; VWAP_RECLAIM is the fallback tried only when it doesn't match. DISABLED
+  # since 2026-09-09, but NOT for the reason first recorded here.
+  #
+  # The original finding (ORB 47 trades, 12.8% win rate, -$2,092.83 over 183 days)
+  # was measured at max_concurrent_positions=1, with no cost model, no stop floor
+  # and no $10 price screen. Re-tested 2026-09-23 under the current config, ORB is
+  # no longer a money-loser: 521 holdout trades at a 46.1% win rate and +$1,075.96,
+  # 318 tuning trades at 50.6% and +$1,045.00. That verdict is refuted; do not cite
+  # it.
+  #
+  # It stays off because re-enabling it is a WASH -- holdout -$15.41 (p=0.950),
+  # tuning +$417.77 (p=0.505) -- while adding ~32% more trades on both periods. ORB
+  # displaces 158 holdout / 140 tuning VWAP_RECLAIM trades worth $554 and $777, which
+  # roughly cancels what it contributes. Free in a backtest; live, each extra fill is
+  # slippage the cost model only floors and a day-trade against the PDT count.
+  # Set true to re-enable; scripts/backtest.py --enable-orb / --disable-orb override.
   enable_orb_pullback: false
   opening_range_minutes: 10
   pullback_max_atr_from_breakout: 1.0

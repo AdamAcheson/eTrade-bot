@@ -2061,3 +2061,105 @@ making you take more.** Nothing tested so far improves the choosing.
 
 The open question this leaves, untested: whether anything can be dropped from the
 morning to free slots for the afternoon, rather than added.
+
+## Midday entry-score sweep: tested and REJECTED (2026-09-23)
+
+The attempt to exploit the time-of-day effect above. `minimum_entry_score.midday_window`
+(shipped 80) gates 11:30–14:00 only; 09:40–11:30 and 14:00–15:15 both use
+`primary_window` (70). Lowering it ADDS trades in the band rather than filtering any
+out — the opposite operation to every filter tested here, all of which lost money by
+cutting trade count.
+
+| threshold | holdout trades | holdout net | Δ | p | tuning trades | tuning net | Δ | p |
+|---|---|---|---|---|---|---|---|---|
+| **80 (shipped)** | 1,001 | **$3,164** | — | — | 592 | **$2,556** | — | — |
+| 75 | 1,045 | $3,112 | −$52 | 0.735 | 619 | $2,520 | −$101 | 0.631 |
+| 70 | 1,094 | $3,058 | −$106 | 0.754 | 645 | $2,423 | −$198 | 0.428 |
+| 65 | 1,140 | $3,123 | −$41 | 0.897 | 677 | $2,443 | −$178 | 0.519 |
+| 60 | 1,160 | $3,212 | +$48 | 0.901 | 689 | $2,600 | −$21 | 0.933 |
+
+Nothing significant anywhere, and no monotone improvement in either direction. But
+**risk-adjusted return degrades monotonically on the holdout** even where net is flat:
+ret/DD 11.7 → 11.1 → 10.9 → 10.0 → 9.7 as max drawdown climbs $270 → $331. You buy
+44% more trades and a sixth more drawdown for no additional money.
+
+### The reason, in every cell
+
+Added trades always have a LOWER mean R than the trades they displace — eight cells
+out of eight, both periods, every threshold:
+
+| | added | displaced |
+|---|---|---|
+| holdout, thr 75 | 97 at +0.387 R | 53 at **+0.624 R** |
+| holdout, thr 70 | 180 at +0.315 R | 87 at **+0.487 R** |
+| holdout, thr 65 | 242 at +0.283 R | 103 at **+0.439 R** |
+| holdout, thr 60 | 272 at +0.287 R | 113 at **+0.419 R** |
+| tuning, thr 75 | 69 at +0.193 R | 42 at **+0.394 R** |
+| tuning, thr 70 | 121 at +0.104 R | 68 at **+0.277 R** |
+| tuning, thr 65 | 164 at +0.083 R | 79 at **+0.182 R** |
+| tuning, thr 60 | 179 at +0.167 R | 82 at **+0.194 R** |
+
+The added trades are not bad in absolute terms. They are simply slightly worse than
+what the 5-concurrent and 15-per-day caps then have to give up, and the arithmetic
+never comes out ahead.
+
+### Two things this establishes beyond its own result
+
+**The entry score does not separate at its own threshold.** With the cut at 60 the
+sample spans below-threshold trades for the first time: score < 80 averages **+0.315 R**
+(n=298) against **+0.312 R** (n=391) at or above it, on the tuning period. A
+difference of 0.002 R. The earlier finding that score has ~zero correlation with
+outcome was measured only among trades above the cut and could have been range
+restriction. It is not — the score is uninformative across the whole visible range.
+
+**Slots, not signal, are the binding constraint.** This is the third effect found
+real as a description and inert as a rule, after the silver-trend regime and
+regime-scaled sizing. The general statement: **when the concurrency and daily-trade
+caps bind, a conditional can only pay by improving which trades get CHOSEN. It cannot
+pay by making the bot take more of them.** 24 point-in-time predictors have failed to
+improve the choosing, which is why nothing on the signal side has moved the result.
+
+**Running tally: 26 tested, 2 adopted** — the 0.5% stop floor and the $10 price
+screen, both mechanical cost controls rather than signals.
+
+## ORB re-test: the original verdict is refuted, the decision survives (2026-09-23)
+
+`setups.enable_orb_pullback` has been false since 2026-09-09. The recorded reason:
+ORB got a real sample once a confirmation-window bug was fixed, and lost money —
+47 trades, 12.8% win rate, −$2,092.83 over 183 days, while disabling it took the
+portfolio from +$3,643.88 to +$7,904.23.
+
+That verdict was reached under a materially different configuration:
+`max_concurrent_positions: 1` (now **5**), no transaction-cost model, no 0.5% stop
+floor, no $10 price screen, 24 or fewer tickers. Half the measured benefit of
+disabling it came from un-blocking 29 crowded-out VWAP_RECLAIM trades — an argument
+that is roughly five times weaker at concurrency 5. Re-tested with `--enable-orb`:
+
+| | holdout off | holdout ON | tuning off | tuning ON |
+|---|---|---|---|---|
+| trades | 1,001 | **1,323** | 592 | **779** |
+| net | $3,164.00 | $3,148.60 | $2,556.24 | $3,026.31 |
+| max drawdown | $270 | $289 | $467 | **$345** |
+| ret/DD | 11.7 | 10.9 | 5.5 | **8.8** |
+| paired Δ | — | **−$15.41** (t=−0.03, p=0.950) | — | **+$417.77** (t=+0.63, p=0.505) |
+
+**ORB is no longer a money-loser.** It now produces 521 trades at a 46.1% win rate
+and +$1,075.96 on the holdout, and 318 trades at 50.6% and +$1,045.00 on tuning —
+against the 47 trades at 12.8% that got it disabled. The 2026-09-09 finding does not
+survive the current configuration and should not be cited as if it does.
+
+**But re-enabling it is a wash.** Holdout is flat to −$15; tuning is +$418 and not
+significant. Displacement again explains it: ORB crowds out 158 VWAP_RECLAIM trades
+worth $554 on the holdout and 140 worth $777 on tuning, and its own contribution
+roughly cancels them.
+
+**Left disabled, for a new reason.** It adds 322 holdout trades and 187 tuning trades
+— a 32% and 32% increase — for no change in net. In a backtest that is free. Live it
+is not: every extra fill is extra exposure to slippage the cost model only floors, and
+every extra trade is a day-trade against the PDT count. Doubling execution risk for
+zero measured gain is a bad trade even when the P&L column says nothing happened.
+
+The one result worth revisiting if the account ever clears PDT: tuning drawdown falls
+from $467 to $345 with ORB on, and ret/DD goes 5.5 → 8.8. The holdout disagrees
+(11.7 → 10.9), so this is not a finding — but it is the only cell where ORB looks
+like more than noise.
