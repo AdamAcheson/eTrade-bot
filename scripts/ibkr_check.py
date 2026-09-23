@@ -37,7 +37,10 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import logging
+from datetime import datetime, time, timedelta
 from typing import Callable, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 PAPER_PORTS = {7497: "TWS paper", 4002: "IB Gateway paper"}
 LIVE_PORTS = {7496: "TWS LIVE", 4001: "IB Gateway LIVE"}
@@ -48,6 +51,48 @@ MARKET_DATA_TYPES = {1: "live", 2: "frozen (last live price, market closed)",
 
 ACCOUNT_TAGS = ("AccountType", "NetLiquidation", "TotalCashValue", "AvailableFunds",
                 "BuyingPower", "DayTradesRemaining", "Cushion")
+
+
+ET = ZoneInfo("America/New_York")
+
+# Plain-English notes printed beside IBKR's own message, which is kept verbatim.
+CODE_NOTES = {
+    2104: "normal status note, not a problem",
+    2106: "normal status note, not a problem",
+    2158: "normal status note, not a problem",
+    354: "no real-time data subscription for this symbol",
+    10167: "no real-time subscription; IBKR is showing delayed data instead",
+    300: "harmless: follows a data request IBKR had already refused",
+}
+
+
+def bar_freshness(bar_start: datetime, now: datetime) -> str:
+    """Say whether 5-minute bars arrive in real time. Only answerable while the
+    market is open: a live feed's newest bar started under ~10 minutes ago, a
+    15-minute-delayed one ~15-20. Holidays are not detected."""
+    now_et = now.astimezone(ET)
+    open_now = (now_et.weekday() < 5
+                and time(9, 30) <= now_et.time() < time(16, 0))
+    if not open_now:
+        return ("market is closed now -- run this again on a weekday between 9:30 and "
+                "4:00 Eastern to learn whether these bars arrive live or delayed")
+    age = (now_et - bar_start.astimezone(ET)).total_seconds() / 60.0
+    if age <= 10:
+        return f"LIVE: newest bar started {age:.0f} min ago, so bars arrive in real time"
+    if age >= 14:
+        return (f"DELAYED: newest bar started {age:.0f} min ago, so bars lag real time and "
+                f"cannot drive live trading without a data subscription")
+    return f"UNCLEAR: newest bar started {age:.0f} min ago -- run again in a few minutes"
+
+
+def _as_datetime(value) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=ET)
+    try:
+        d = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=ET)
 
 
 def looks_like_paper(account_id: str) -> bool:
@@ -66,7 +111,7 @@ def _num(v) -> Optional[float]:
 
 
 def run(ib, host: str, port: int, client_id: int, symbol: str,
-        out: Callable[[str], None] = print) -> int:
+        out: Callable[[str], None] = print, now: Optional[datetime] = None) -> int:
     errors: List[Tuple[int, int, str]] = []
 
     def on_error(req_id, code, msg, *rest):
@@ -104,11 +149,16 @@ def run(ib, host: str, port: int, client_id: int, symbol: str,
     for av in ib.accountSummary():
         if av.tag in ACCOUNT_TAGS and av.tag not in values:
             values[av.tag] = f"{av.value} {av.currency}".strip()
+    for av in getattr(ib, "accountValues", lambda: [])():
+        if av.tag == "DayTradesRemaining" and av.tag not in values:
+            values[av.tag] = str(av.value)
     if values:
         out("\nAccount summary:")
         for tag in ACCOUNT_TAGS:
             if tag in values:
                 out(f"  {tag:20} {values[tag]}")
+        if "DayTradesRemaining" not in values:
+            out(f"  {'DayTradesRemaining':20} not reported by IBKR")
     else:
         out("\n  (no account summary returned)")
 
@@ -166,6 +216,9 @@ def run(ib, host: str, port: int, client_id: int, symbol: str,
         b = bars[-1]
         out(f"  PASS  {len(bars)} bars; last {b.date}  O {b.open}  H {b.high}  L {b.low}  "
             f"C {b.close}  V {b.volume}")
+        start = _as_datetime(b.date)
+        if start is not None:
+            out("        " + bar_freshness(start, now or datetime.now(ET)))
     else:
         failures += 1
         out("  FAIL  no bars returned")
@@ -182,7 +235,8 @@ def _print_errors(errors, out) -> None:
         out("  none")
         return
     for req_id, code, msg in errors:
-        out(f"  [{code}] (req {req_id}) {msg}")
+        note = CODE_NOTES.get(code)
+        out(f"  [{code}] (req {req_id}) {msg}" + (f"\n         -> {note}" if note else ""))
 
 
 def main(argv=None) -> int:
@@ -193,6 +247,9 @@ def main(argv=None) -> int:
     ap.add_argument("--client-id", type=int, default=17)
     ap.add_argument("--symbol", default="AG")
     args = ap.parse_args(argv)
+    # ib_async also logs every IBKR message to the console; the script already prints
+    # them in one annotated list, so the duplicate copies only add noise.
+    logging.getLogger("ib_async").setLevel(logging.CRITICAL)
     try:
         from ib_async import IB
     except ImportError:

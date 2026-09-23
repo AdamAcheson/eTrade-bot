@@ -174,3 +174,71 @@ def test_frozen_after_close_is_not_mistaken_for_delayed():
     _, text = _run(FakeIB(delivered_type=2))
     assert "received frozen" in text
     assert "Only DELAYED" not in text
+
+
+# --- bar freshness: the question the next run during market hours has to answer ---
+from datetime import datetime as _dt
+from zoneinfo import ZoneInfo as _Z
+
+_ET = _Z("America/New_York")
+
+
+def _at(h, m, day=24):   # 2026-09-24 is a Thursday
+    return _dt(2026, 9, day, h, m, tzinfo=_ET)
+
+
+def test_fresh_bar_during_market_hours_is_live():
+    msg = ibkr_check.bar_freshness(_at(11, 0), _at(11, 3))
+    assert msg.startswith("LIVE")
+
+
+def test_fifteen_minute_old_bar_during_market_hours_is_delayed():
+    msg = ibkr_check.bar_freshness(_at(10, 45), _at(11, 3))
+    assert msg.startswith("DELAYED")
+
+
+def test_after_the_close_it_says_run_again_in_market_hours():
+    msg = ibkr_check.bar_freshness(_at(15, 55), _at(17, 30))
+    assert "market is closed" in msg
+
+
+def test_weekend_counts_as_closed():
+    msg = ibkr_check.bar_freshness(_at(11, 0, day=26), _at(11, 3, day=26))  # Saturday
+    assert "market is closed" in msg
+
+
+def test_freshness_is_printed_after_the_bars():
+    code, text = _run_at(FakeIB(), _at(17, 30))
+    assert "market is closed" in text
+
+
+def test_known_codes_get_a_plain_english_note():
+    ib = FakeIB()
+    orig = ib.connect
+
+    def connect(*a, **k):
+        orig(*a, **k)
+        ib.errorEvent.fire(-1, 2104, "Market data farm connection is OK:usfarm", None)
+        ib.errorEvent.fire(5, 354, "Requested market data is not subscribed.", None)
+    ib.connect = connect
+    _, text = _run(ib)
+    assert "normal status note" in text
+    assert "no real-time data subscription" in text
+
+
+def test_day_trades_remaining_says_so_when_absent():
+    _, text = _run(FakeIB())
+    assert "DayTradesRemaining" in text and "not reported" in text
+
+
+def test_day_trades_remaining_read_from_account_values():
+    ib = FakeIB()
+    ib.accountValues = lambda: [SimpleNamespace(tag="DayTradesRemaining", value="3", currency="")]
+    _, text = _run(ib)
+    assert "DayTradesRemaining   3" in text
+
+
+def _run_at(ib, now, port=7497):
+    lines = []
+    code = ibkr_check.run(ib, "127.0.0.1", port, 17, "AG", out=lines.append, now=now)
+    return code, "\n".join(lines)
