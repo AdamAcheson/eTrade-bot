@@ -172,6 +172,13 @@ def main() -> int:
              "below the high-water mark (applied in-memory only).",
     )
     parser.add_argument(
+        "--midday-score", type=float, default=None,
+        help="EXPERIMENT override: replaces scoring.minimum_entry_score.midday_window "
+             "(shipped 80), which gates the 11:30-14:00 band only -- 09:40-11:30 and "
+             "14:00-15:15 use primary_window (70). Lowering it ADDS midday trades "
+             "rather than removing any.",
+    )
+    parser.add_argument(
         "--score-bump", type=float, default=None,
         help="EXPERIMENT override: add this many points to BOTH minimum entry score "
              "windows, preserving the 10-point primary/midday gap. Trades less, and "
@@ -379,7 +386,7 @@ def main() -> int:
         args.min_price is not None,
         args.no_benchmark_confirmation, args.no_benchmark_vwap, args.no_benchmark_fresh_low,
         args.gap_day_pct is not None, args.gap_day_rvol is not None,
-        args.score_bump is not None,
+        args.score_bump is not None, args.midday_score is not None,
     ])
     if experiment_active:
         print("EXPERIMENT overrides active (in-memory only, config/risk.yaml is untouched):")
@@ -431,6 +438,9 @@ def main() -> int:
         if args.partial_exit_trigger_r is not None:
             config.strategy["trade_management"]["partial_exit"]["trigger_r"] = args.partial_exit_trigger_r
             print(f"  partial_exit.trigger_r = {args.partial_exit_trigger_r}")
+        if args.midday_score is not None:
+            config.strategy["scoring"]["minimum_entry_score"]["midday_window"] = args.midday_score
+            print(f"  scoring.minimum_entry_score.midday_window = {args.midday_score}")
         if args.score_bump is not None:
             mes = config.strategy["scoring"]["minimum_entry_score"]
             for key in ("primary_window", "midday_window"):
