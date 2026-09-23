@@ -112,3 +112,33 @@ def test_zero_volume_session_does_not_divide_by_zero():
     bars = _bars(vols=[0.0] * 20)
     svg = plot_trades.figure(_trade(bars), bars)
     assert all(v == v for v in _coords(svg))
+
+
+def test_app_headline_total_matches_the_journal_not_rounded_values(tmp_path):
+    """The page rounds each trade to the cent for size; summing those rounded values
+    drifts from the backtest's own total (9c across the 1,001 holdout trades). A
+    verification tool disagreeing with the thing it verifies is the one thing it
+    must not do."""
+    bars = _bars()
+    day = bars[0].timestamp.strftime("%Y-%m-%d")
+    trades = []
+    for i in range(12):
+        t = _trade(bars, net_profit=0.004 + i * 0.001)
+        t["entry_time"] = bars[i].timestamp.isoformat()
+        trades.append(t)
+    exact = sum(t["net_profit"] for t in trades)
+
+    out = tmp_path / "app.html"
+    monkey = plot_trades.load_bars
+    plot_trades.load_bars = lambda tk, d: bars
+    try:
+        assert plot_trades.build_app(trades, "_t", str(out)) == 0
+    finally:
+        plot_trades.load_bars = monkey
+
+    html_text = out.read_text()
+    assert f"${exact:,.2f}" in html_text
+    # and the naive rounded sum, if different, must NOT be what is printed
+    rounded = sum(round(t["net_profit"], 2) for t in trades)
+    if abs(rounded - exact) >= 0.005:
+        assert f"${rounded:,.2f}" not in html_text

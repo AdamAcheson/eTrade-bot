@@ -252,6 +252,14 @@ th,td{text-align:left;padding:3px 14px 3px 0;font-weight:400}
 th{color:#52514e;font-weight:400}
 td{font-variant-numeric:tabular-nums}
 .empty{color:#52514e}
+nav{display:flex;gap:16px;align-items:baseline;margin:0 0 20px;font-size:.9rem}
+nav span{color:#52514e}
+nav a{color:#2a78d6}
+table.index{width:100%;font-size:.9rem;margin-top:8px}
+table.index th{color:#52514e;border-bottom:1px solid #e4e3df;padding-bottom:6px}
+table.index td{padding:6px 14px 6px 0;border-bottom:1px solid #f0efec}
+table.index td.win{color:#0ca30c}table.index td.loss{color:#d03b3b}
+table.index a{color:#2a78d6}
 @media (prefers-color-scheme:dark){
  :root:not([data-theme="light"]) body{background:#0d0d0d;color:#fff}
  :root:not([data-theme="light"]) .lede,:root:not([data-theme="light"]) .day,
@@ -273,8 +281,233 @@ td{font-variant-numeric:tabular-nums}
  :root:not([data-theme="light"]) .mark.exit{fill:#c3c2b7}
  :root:not([data-theme="light"]) .mark-lbl{fill:#fff}
  :root:not([data-theme="light"]) .held{fill:#fff;opacity:.07}
+ :root:not([data-theme="light"]) nav span{color:#c3c2b7}
+ :root:not([data-theme="light"]) nav a,:root:not([data-theme="light"]) table.index a{color:#3987e5}
+ :root:not([data-theme="light"]) table.index th{color:#c3c2b7;border-color:#33322e}
+ :root:not([data-theme="light"]) table.index td{border-color:#262521}
 }
 """
+
+
+
+# ---------------------------------------------------------------- app mode ----
+# One self-contained page for a whole backtest. The static mode writes ~26KB of SVG
+# per trade, so a thousand trades is ~26MB across a dozen linked files -- unusable
+# to hand to someone as files, since the links between them do not survive. Here the
+# bars are embedded ONCE per ticker-day (946 sessions carry 1,001 holdout trades) and
+# the figures are drawn in the browser on demand, which lands around 4MB in a single
+# file that filters and sorts in place.
+#
+# VWAP is still computed in Python by the bot's own vwap_series and shipped as an
+# array. Recomputing it in JavaScript would reintroduce exactly the second
+# implementation this tool exists to avoid.
+
+APP_JS = r"""
+const $ = s => document.querySelector(s);
+const W=900, PH=340, VH=84, ML=62, MR=96, MT=28, MB=26, GAP=2;
+const esc = v => String(v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = v => (v<0?'-':'')+'$'+Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const hhmm = m => String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+
+function figure(t){
+  const s = SESSIONS[t.k];
+  if(!s) return `<figure class="viz-root"><figcaption><span class="tkr">${esc(t.tk)}</span>
+    <span class="day">${esc(t.d)}</span></figcaption><p class="empty">No cached bars.</p></figure>`;
+  const n = s.o.length;
+  let lo=Math.min(...s.l), hi=Math.max(...s.h);
+  for(const p of [t.sp, t.tg, t.ep, t.xp]){ lo=Math.min(lo,p); hi=Math.max(hi,p); }
+  const pad=(hi-lo)*0.06 || 0.01; lo-=pad; hi+=pad;
+  const step=(W-ML-MR)/n, bw=Math.max(1.6, step-GAP);
+  const X=i=>ML+i*step+step/2, Y=p=>MT+(hi-p)/(hi-lo)*PH;
+  const sv=[...s.v].sort((a,b)=>a-b);
+  const vmax = sv[Math.min(Math.round(0.95*(n-1)), n-1)] || Math.max(...sv) || 1;
+  const clipped = sv.filter(v=>v>vmax).length;
+  const volTop = MT+PH+22, VY = v => volTop+VH-Math.min(v/vmax,1)*VH;
+  const idx = ts => { let b=null; for(let i=0;i<n;i++){ if(s.t[i]===ts) return i; if(s.t[i]<=ts) b=i; } return b; };
+  const ei=idx(t.em), xi=idx(t.xm);
+  const o=[];
+  if(ei!==null&&xi!==null){ const x0=X(ei)-step/2, x1=X(xi)+step/2;
+    o.push(`<rect class="held" x="${x0.toFixed(1)}" y="${MT}" width="${Math.max(x1-x0,1).toFixed(1)}" height="${PH}"/>`); }
+  for(let k=0;k<5;k++){ const p=lo+(hi-lo)*k/4, y=Y(p);
+    o.push(`<line class="grid" x1="${ML}" y1="${y.toFixed(1)}" x2="${W-MR}" y2="${y.toFixed(1)}"/>`);
+    o.push(`<text class="tick" x="${ML-8}" y="${(y+4).toFixed(1)}" text-anchor="end">${p.toFixed(2)}</text>`); }
+  for(let i=0;i<n;i++){
+    const cls=s.c[i]>=s.o[i]?'up':'down', cx=X(i);
+    o.push(`<line class="wick ${cls}" x1="${cx.toFixed(1)}" y1="${Y(s.h[i]).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${Y(s.l[i]).toFixed(1)}"/>`);
+    const top=Y(Math.max(s.o[i],s.c[i])), bot=Y(Math.min(s.o[i],s.c[i]));
+    o.push(`<rect class="body ${cls}" x="${(cx-bw/2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(bot-top,1).toFixed(1)}"><title>${hhmm(s.t[i])}  O ${s.o[i].toFixed(2)}  H ${s.h[i].toFixed(2)}  L ${s.l[i].toFixed(2)}  C ${s.c[i].toFixed(2)}  vol ${s.v[i].toLocaleString()}</title></rect>`);
+    o.push(`<rect class="vol ${cls}" x="${(cx-bw/2).toFixed(1)}" y="${VY(s.v[i]).toFixed(1)}" width="${bw.toFixed(1)}" height="${(volTop+VH-VY(s.v[i])).toFixed(1)}"/>`);
+  }
+  const pts=s.w.map((v,i)=>v===null?null:`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).filter(Boolean).join(' ');
+  if(pts){ o.push(`<polyline class="vwap" points="${pts}"/>`);
+    const last=[...s.w].reverse().find(v=>v!==null);
+    o.push(`<text class="lbl vwap-lbl" x="${W-MR+6}" y="${(Y(last)+4).toFixed(1)}">VWAP ${last.toFixed(2)}</text>`); }
+  for(const [lv,cls,nm] of [[t.sp,'stop','stop'],[t.tg,'target','target']]){ const y=Y(lv);
+    o.push(`<line class="rail ${cls}" x1="${ML}" y1="${y.toFixed(1)}" x2="${W-MR}" y2="${y.toFixed(1)}"/>`);
+    o.push(`<text class="lbl ${cls}-lbl" x="${W-MR+6}" y="${(y+4).toFixed(1)}">${nm} ${lv.toFixed(2)}</text>`); }
+  const mark=(i,p,up,label,cls)=>{ const cx=X(i), cy=Y(p), d=7;
+    const tri = up ? `${cx.toFixed(1)},${(cy-d).toFixed(1)} ${(cx-d).toFixed(1)},${(cy+d).toFixed(1)} ${(cx+d).toFixed(1)},${(cy+d).toFixed(1)}`
+                   : `${cx.toFixed(1)},${(cy+d).toFixed(1)} ${(cx-d).toFixed(1)},${(cy-d).toFixed(1)} ${(cx+d).toFixed(1)},${(cy-d).toFixed(1)}`;
+    return `<polygon class="mark ${cls}" points="${tri}"/><text class="mark-lbl" x="${cx.toFixed(1)}" y="${(up?cy-d-7:cy+d+14).toFixed(1)}" text-anchor="middle">${esc(label)}</text>`; };
+  if(ei!==null) o.push(mark(ei,t.ep,true,`entry ${t.ep.toFixed(2)}`,'entry'));
+  if(xi!==null) o.push(mark(xi,t.xp,false,`exit ${t.xp.toFixed(2)}`,'exit'));
+  for(let i=0;i<n;i+=Math.max(1,Math.floor(n/8)))
+    o.push(`<text class="tick" x="${X(i).toFixed(1)}" y="${volTop+VH+16}" text-anchor="middle">${hhmm(s.t[i])}</text>`);
+  o.push(`<text class="tick axis-name" x="${ML-8}" y="${volTop+10}" text-anchor="end">vol</text>`);
+  if(clipped) o.push(`<text class="tick axis-name" x="${W-MR+6}" y="${volTop+10}">p95 cap · ${clipped} over</text>`);
+  const H=volTop+VH+MB, sign=t.np>0?'win':'loss';
+  const rows=[['setup',t.st||'-'],['score',(t.sc||0).toFixed(1)],
+    ['entry',`${t.ep.toFixed(2)} at ${hhmm(t.em)}`],['exit',`${t.xp.toFixed(2)} at ${hhmm(t.xm)} (${t.xr})`],
+    ['initial stop',t.sp.toFixed(2)],['initial target',t.tg.toFixed(2)],
+    ['shares',t.sh.toLocaleString()],['notional','$'+Math.round(t.ep*t.sh).toLocaleString()],
+    ['net P&L',money(t.np)],['R',(t.r>=0?'+':'')+t.r.toFixed(2)]];
+  return `<figure class="viz-root"><figcaption><span class="tkr">${esc(t.tk)}</span>
+    <span class="day">${esc(t.d)}</span>
+    <span class="res ${sign}">${t.np>0?'+':''}${money(t.np)} · ${(t.r>=0?'+':'')+t.r.toFixed(2)}R</span>
+    <span class="sub">${esc(t.st||'')} · exit ${esc(t.xr)}</span></figcaption>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(t.tk)} ${esc(t.d)}: entry ${t.ep.toFixed(2)}, exit ${t.xp.toFixed(2)}, net ${t.np.toFixed(2)} dollars, ${t.r.toFixed(2)} R">${o.join('')}</svg>
+    <details><summary>the numbers</summary><table>${rows.map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</table></details>
+  </figure>`;
+}
+
+let view=[], page=0, per=25;
+function apply(){
+  const tk=$('#f-ticker').value, xr=$('#f-exit').value, res=$('#f-res').value, sort=$('#f-sort').value;
+  view=TRADES.filter(t =>
+    (!tk||t.tk===tk) && (!xr||t.xr===xr) &&
+    (res==='' || (res==='win'?t.np>0:res==='loss'?t.np<0:t.r>3)));
+  view.sort(sort==='r'?(a,b)=>b.r-a.r : sort==='net'?(a,b)=>b.np-a.np :
+            sort==='worst'?(a,b)=>a.np-b.np : (a,b)=>a.d.localeCompare(b.d)||a.em-b.em);
+  page=0; draw();
+}
+function draw(){
+  const total=view.length, pages=Math.max(1,Math.ceil(total/per));
+  page=Math.min(page,pages-1);
+  const slice=view.slice(page*per,(page+1)*per);
+  const net=view.reduce((a,t)=>a+t.np,0), wins=view.filter(t=>t.np>0).length;
+  $('#summary').textContent = total
+    ? `${total} trade(s), ${wins} winners (${(100*wins/total).toFixed(0)}%), net ${money(net)}. Showing ${page*per+1}–${page*per+slice.length}.`
+    : 'No trades match these filters.';
+  $('#figs').innerHTML = slice.map(figure).join('');
+  $('#pg').textContent = `page ${page+1} of ${pages}`;
+  $('#prev').disabled = page===0; $('#next').disabled = page>=pages-1;
+  window.scrollTo({top:0});
+}
+function boot(){
+  const opts=(el,vals)=>{ for(const v of vals){ const o=document.createElement('option'); o.value=v; o.textContent=v; el.appendChild(o);} };
+  opts($('#f-ticker'), [...new Set(TRADES.map(t=>t.tk))].sort());
+  opts($('#f-exit'), [...new Set(TRADES.map(t=>t.xr))].sort());
+  for(const id of ['f-ticker','f-exit','f-res','f-sort']) $('#'+id).addEventListener('change',apply);
+  $('#f-per').addEventListener('change',e=>{per=+e.target.value;page=0;draw();});
+  $('#prev').addEventListener('click',()=>{page--;draw();});
+  $('#next').addEventListener('click',()=>{page++;draw();});
+  apply();
+}
+document.addEventListener('DOMContentLoaded',boot);
+"""
+
+APP_CSS = """
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:0 0 14px;padding:14px;
+ background:#fcfcfb;border:1px solid #e4e3df;border-radius:10px}
+.controls label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:#52514e}
+.controls select{font:inherit;font-size:.85rem;padding:5px 8px;border:1px solid #d6d5d0;
+ border-radius:6px;background:#fff;color:#0b0b0b;min-width:9rem}
+.pager{display:flex;gap:10px;align-items:center;margin:0 0 18px;font-size:.9rem}
+.pager button{font:inherit;font-size:.85rem;padding:5px 12px;border:1px solid #d6d5d0;
+ border-radius:6px;background:#fff;color:#0b0b0b;cursor:pointer}
+.pager button:disabled{opacity:.4;cursor:default}
+#summary{color:#52514e;font-size:.9rem;margin:0 0 10px}
+@media (prefers-color-scheme:dark){
+ :root:not([data-theme="light"]) .controls{background:#1a1a19;border-color:#33322e}
+ :root:not([data-theme="light"]) .controls label,:root:not([data-theme="light"]) #summary{color:#c3c2b7}
+ :root:not([data-theme="light"]) .controls select,:root:not([data-theme="light"]) .pager button{
+  background:#242320;border-color:#403f3a;color:#fff}
+}
+"""
+
+
+def build_app(trades, tag: str, out: str) -> int:
+    """One self-contained page: bars once per ticker-day, figures drawn in-browser."""
+    sessions, keep, skipped = {}, [], set()
+    for t in trades:
+        key = f'{t["ticker"]}|{t["date"]}'
+        if key not in sessions:
+            bars = load_bars(t["ticker"], t["date"])
+            if not bars:
+                sessions[key] = None
+                skipped.add(key)
+            else:
+                open_min = bars[0].timestamp.hour * 60 + bars[0].timestamp.minute
+                sessions[key] = {
+                    "t": [b.timestamp.hour * 60 + b.timestamp.minute for b in bars],
+                    "o": [round(b.open, 3) for b in bars], "h": [round(b.high, 3) for b in bars],
+                    "l": [round(b.low, 3) for b in bars], "c": [round(b.close, 3) for b in bars],
+                    "v": [int(b.volume) for b in bars],
+                    # the bot's own vwap_series -- never recomputed in JS
+                    "w": [None if v is None else round(v, 4) for v in vwap_series(bars)],
+                }
+                del open_min
+        if sessions[key] is None:
+            continue
+        keep.append({
+            "k": key, "tk": t["ticker"], "d": t["date"],
+            "em": int(t["entry_time"][11:13]) * 60 + int(t["entry_time"][14:16]),
+            "xm": int(t["exit_time"][11:13]) * 60 + int(t["exit_time"][14:16]),
+            "ep": round(t["entry_price"], 4), "xp": round(t["exit_price"], 4),
+            "sp": round(t["initial_stop"], 4), "tg": round(t["initial_target"], 4),
+            "sh": t["shares"], "np": round(t["net_profit"], 2), "r": round(t["r_return"], 3),
+            "xr": t["exit_reason"], "st": t.get("setup_type"), "sc": round(t.get("setup_score") or 0, 1),
+        })
+    sessions = {k: v for k, v in sessions.items() if v is not None}
+    if not keep:
+        print("no cached bars for any matching trade", file=sys.stderr)
+        return 1
+
+    # Sum the journal's own unrounded values, not the rounded ones shipped to the page:
+    # 1,001 trades rounded to the cent drift 9c off the backtest's total, and a
+    # verification tool must not disagree with the thing it verifies over rounding.
+    kept_keys = {(t["k"], t["em"]) for t in keep}
+    net = sum(t["net_profit"] for t in trades
+              if (f'{t["ticker"]}|{t["date"]}',
+                  int(t["entry_time"][11:13]) * 60 + int(t["entry_time"][14:16])) in kept_keys)
+    note = (f'<p class="empty">No cached bars for {len(skipped)} session(s).</p>') if skipped else ""
+    doc = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trade charts — {esc(tag)}</title><style>{CSS}{APP_CSS}</style></head>
+<body><div class="wrap">
+<h1>Trade charts — {len(keep):,} trades</h1>
+<p class="lede">Every trade in <code>backtest_trades{esc(tag)}.jsonl</code>, netting
+{'-' if net < 0 else ''}${abs(net):,.2f}, drawn on its own session. Blue bars closed up,
+orange closed down. The dashed grey line is the session VWAP the bot computed; dotted
+rails are the initial stop and target. Hover a bar for OHLCV. <strong>These are backtest
+fills at bar prices, not executed orders.</strong></p>
+{note}
+<div class="controls">
+<label>ticker<select id="f-ticker"><option value="">all</option></select></label>
+<label>exit reason<select id="f-exit"><option value="">all</option></select></label>
+<label>result<select id="f-res"><option value="">all</option><option value="win">winners</option>
+<option value="loss">losers</option><option value="tail">the tail (&gt;3R)</option></select></label>
+<label>order<select id="f-sort"><option value="time">chronological</option>
+<option value="r">best R first</option><option value="net">biggest win first</option>
+<option value="worst">biggest loss first</option></select></label>
+<label>per page<select id="f-per"><option>10</option><option selected>25</option>
+<option>50</option><option>100</option></select></label>
+</div>
+<p id="summary"></p>
+<div class="pager"><button id="prev">← previous</button><span id="pg"></span><button id="next">next →</button></div>
+<div id="figs"></div>
+<div class="pager"><button id="prev2" hidden></button></div>
+</div>
+<script>const SESSIONS={json.dumps(sessions, separators=(",", ":"))};
+const TRADES={json.dumps(keep, separators=(",", ":"))};
+{APP_JS}</script></body></html>"""
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    with open(out, "w") as fh:
+        fh.write(doc)
+    print(f"wrote {out}  ({len(keep):,} trades, {len(sessions):,} sessions, "
+          f"{os.path.getsize(out) / 1e6:.1f} MB)")
+    return 0
 
 
 def main() -> int:
@@ -282,7 +515,18 @@ def main() -> int:
     ap.add_argument("--tag", default="_daily", help="journal suffix: reports/backtest_trades<TAG>.jsonl")
     ap.add_argument("--day", help="only this session (YYYY-MM-DD)")
     ap.add_argument("--ticker", help="only this ticker")
-    ap.add_argument("--limit", type=int, default=40, help="most recent N trades (default 40)")
+    ap.add_argument("--limit", type=int, default=40,
+                    help="cap the number of trades drawn (default 40; 0 for all)")
+    ap.add_argument("--chunk", type=int, default=0,
+                    help="split across files of N figures each, with an index. A figure is "
+                         "~26KB, so a thousand trades in one file is ~26MB and no browser "
+                         "will scroll it comfortably. 100 is a reasonable page.")
+    ap.add_argument("--sort", choices=("time", "r", "net"), default="time",
+                    help="order: chronological (default), or by R / net P&L descending")
+    ap.add_argument("--app", action="store_true",
+                    help="one self-contained interactive page instead of static files: bars "
+                         "embedded once per session, figures drawn in-browser, with filters "
+                         "and paging. The right mode for a whole backtest.")
     ap.add_argument("--out", help="output HTML (default reports/trades<TAG>.html)")
     args = ap.parse_args()
 
@@ -295,17 +539,28 @@ def main() -> int:
         trades = [t for t in trades if t["date"] == args.day]
     if args.ticker:
         trades = [t for t in trades if t["ticker"].upper() == args.ticker.upper()]
-    trades.sort(key=lambda t: (t["date"], t["entry_time"]))
+    if args.sort == "r":
+        trades.sort(key=lambda t: -t["r_return"])
+    elif args.sort == "net":
+        trades.sort(key=lambda t: -t["net_profit"])
+    else:
+        trades.sort(key=lambda t: (t["date"], t["entry_time"]))
     if args.limit and len(trades) > args.limit:
-        print(f"{len(trades)} trades match; drawing the most recent {args.limit} "
-              f"(raise with --limit)", file=sys.stderr)
-        trades = trades[-args.limit:]
+        kept = trades[-args.limit:] if args.sort == "time" else trades[:args.limit]
+        print(f"{len(trades)} trades match; drawing {args.limit} "
+              f"({'most recent' if args.sort == 'time' else 'top by ' + args.sort}). "
+              f"--limit 0 for all", file=sys.stderr)
+        trades = kept
     if not trades:
         print("no trades matched", file=sys.stderr)
         return 1
 
+    if args.app:
+        return build_app(trades, args.tag,
+                         args.out or os.path.join(REPORTS, f"trades{args.tag}-app.html"))
+
     cache: Dict[tuple, List[Bar]] = {}
-    figs, skipped = [], []
+    figs, meta, skipped = [], [], []
     for t in trades:
         key = (t["ticker"], t["date"])
         if key not in cache:
@@ -315,37 +570,100 @@ def main() -> int:
             skipped.append(f'{t["ticker"]} {t["date"]}')
             continue
         figs.append(figure(t, bars))
+        meta.append({"date": t["date"], "ticker": t["ticker"],
+                     "net": t["net_profit"], "r": t["r_return"]})
 
     if not figs:
         print("no cached bars for any matching trade", file=sys.stderr)
         return 1
 
-    span = f"{trades[0]['date']} to {trades[-1]['date']}" if trades[0]["date"] != trades[-1]["date"] else trades[0]["date"]
     net = sum(t["net_profit"] for t in trades)
     note = ""
     if skipped:
         note = (f'<p class="empty">No cached bars for {len(skipped)} trade(s): '
                 f'{esc(", ".join(sorted(set(skipped))[:6]))}{"…" if len(set(skipped)) > 6 else ""}</p>')
 
-    doc = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Trade charts {esc(span)}</title><style>{CSS}</style></head>
-<body><div class="wrap">
-<h1>Trade charts — {esc(span)}</h1>
-<p class="lede">{len(figs)} simulated trade(s) from <code>backtest_trades{esc(args.tag)}.jsonl</code>,
-net ${net:,.2f}. Blue bars closed up, orange closed down. The dashed grey line is the
-session VWAP the bot computed; dotted rails are the initial stop and target. These are
-backtest fills at bar prices, not executed orders.</p>
-{note}
-{''.join(figs)}
-</div></body></html>"""
-
     out = args.out or os.path.join(REPORTS, f"trades{args.tag}.html")
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
-    with open(out, "w") as fh:
-        fh.write(doc)
-    print(f"wrote {out}  ({len(figs)} figures)")
+    stem, ext = os.path.splitext(out)
+    size = args.chunk if args.chunk and args.chunk > 0 else len(figs)
+    pages = [figs[i:i + size] for i in range(0, len(figs), size)] or [[]]
+    metas = [meta[i:i + size] for i in range(0, len(meta), size)] or [[]]
+    single = len(pages) == 1
+
+    def page_path(k: int) -> str:
+        return out if single else f"{stem}-{k + 1:03d}{ext}"
+
+    order = {"time": "chronological", "r": "by R, descending", "net": "by net P&L, descending"}[args.sort]
+    written = []
+    for k, page in enumerate(pages):
+        first, last = metas[k][0], metas[k][-1]
+        head = (f"{first['date']} to {last['date']}" if first["date"] != last["date"] else first["date"]) \
+            if args.sort == "time" else f"{first['r']:+.2f}R to {last['r']:+.2f}R"
+        nav = ""
+        if not single:
+            bits = []
+            if k > 0:
+                bits.append(f'<a href="{esc(os.path.basename(page_path(k - 1)))}">← previous</a>')
+            bits.append(f'<span>page {k + 1} of {len(pages)}</span>')
+            if k < len(pages) - 1:
+                bits.append(f'<a href="{esc(os.path.basename(page_path(k + 1)))}">next →</a>')
+            nav = f'<nav>{" ".join(bits)}</nav>'
+        page_net = sum(m["net"] for m in metas[k])
+        doc = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trade charts {esc(head)}</title><style>{CSS}</style></head>
+<body><div class="wrap">
+<h1>Trade charts — {esc(head)}</h1>
+<p class="lede">{len(page)} of {len(figs)} simulated trades from
+<code>backtest_trades{esc(args.tag)}.jsonl</code>, {esc(order)}. This page nets
+${page_net:,.2f}; the full selection nets ${net:,.2f}. Blue bars closed up, orange
+closed down. The dashed grey line is the session VWAP the bot computed; dotted rails
+are the initial stop and target. These are backtest fills at bar prices, not executed
+orders.</p>
+{nav}
+{note if k == 0 else ""}
+{''.join(page)}
+{nav}
+</div></body></html>"""
+        with open(page_path(k), "w") as fh:
+            fh.write(doc)
+        written.append(page_path(k))
+
+    if not single:
+        rows = []
+        for k, ms in enumerate(metas):
+            pnet = sum(m["net"] for m in ms)
+            wins = sum(1 for m in ms if m["net"] > 0)
+            rows.append(
+                f'<tr><td><a href="{esc(os.path.basename(page_path(k)))}">page {k + 1}</a></td>'
+                f'<td>{esc(ms[0]["ticker"])} {esc(ms[0]["date"])} → {esc(ms[-1]["ticker"])} {esc(ms[-1]["date"])}</td>'
+                f'<td>{len(ms)}</td><td>{wins}</td>'
+                f'<td class="{"win" if pnet > 0 else "loss"}">${pnet:,.2f}</td>'
+                f'<td>{max(m["r"] for m in ms):+.2f}R</td></tr>')
+        idx = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trade charts index</title><style>{CSS}</style></head>
+<body><div class="wrap">
+<h1>Trade charts — {len(figs)} trades, {len(pages)} pages</h1>
+<p class="lede">From <code>backtest_trades{esc(args.tag)}.jsonl</code>, {esc(order)},
+netting ${net:,.2f}. Split into pages of {size} because one file of every figure is
+about {len(figs) * 26 // 1000}MB. These are backtest fills, not executed orders.</p>
+{note}
+<table class="index"><thead><tr><th>page</th><th>span</th><th>trades</th><th>wins</th>
+<th>net</th><th>best R</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
+</div></body></html>"""
+        index_path = f"{stem}-index{ext}"
+        with open(index_path, "w") as fh:
+            fh.write(idx)
+        written.insert(0, index_path)
+
+    for w in written[:4]:
+        print(f"wrote {w}")
+    if len(written) > 4:
+        print(f"... and {len(written) - 4} more ({len(figs)} figures total)")
     return 0
 
 
