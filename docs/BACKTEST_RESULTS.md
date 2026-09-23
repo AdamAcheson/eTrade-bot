@@ -1966,3 +1966,96 @@ accept that the notional cap is the real rule — the risk parameter should stop
 described as if it governs.
 
 Not changed here. Recorded so the choice is made deliberately rather than inherited.
+
+## Time of day: the first effect to replicate out of sample (2026-09-23)
+
+Origin matters here. This came from the user reviewing the trade charts and noticing
+that two strong trades — FCX 2024-05-01 (+3.81R, entered 14:15) and MP 2025-06-05
+(+3.17R, entered 12:25) — were both afternoon entries, against an assumption that
+mornings are the productive window. The accompanying hypothesis (reclaims that also
+clear a range high, on elevated volume) is written up as REJECTED below; the
+time-of-day observation is the part that survived.
+
+### The result
+
+VWAP reclaims entered from 13:00 onward, against everything earlier:
+
+| period | afternoon (13:00+) | earlier | difference | permutation p |
+|---|---|---|---|---|
+| **Holdout** (out of sample) | +0.466 mean R, 12.0% >3R, n=316 | +0.219, 3.9%, n=685 | **+0.247** | **0.0088** |
+| **Tuning** | +0.548 mean R, 11.4% >3R, n=202 | +0.234, 5.6%, n=390 | **+0.314** | **0.0140** |
+
+10,000 shuffles, seed 7. Both periods, same direction, comparable magnitude, and the
+>3R rate roughly triples on the holdout. **After 24 null point-in-time predictors, 6
+chart patterns, 6 exit variants, a regime filter and a regime-scaled sizing rule,
+this is the first thing in this project to replicate out of sample at p < 0.05 on
+both periods.**
+
+Per hour (every trade in both runs is a VWAP_RECLAIM; ORB_PULLBACK_CONTINUATION never
+fires, which is worth its own look some time):
+
+| hour | holdout n | holdout mean R | holdout >3R | tuning n | tuning mean R | tuning >3R |
+|---|---|---|---|---|---|---|
+| 10:00 | 194 | +0.133 | 2.1% | 106 | +0.638 | 9.4% |
+| 11:00 | 321 | +0.324 | 5.3% | 205 | +0.028 | 3.9% |
+| 12:00 | 170 | +0.119 | 3.5% | 79 | +0.224 | 5.1% |
+| **13:00** | 117 | **+0.429** | **9.4%** | 76 | **+0.420** | **10.5%** |
+| **14:00** | 176 | **+0.552** | **14.8%** | 101 | **+0.445** | 8.9% |
+| 15:00 | 23 | −0.003 | 4.3% | 25 | +1.349 | 24.0% |
+
+13:00 and 14:00 are the only two hours that sit above baseline on BOTH periods. The
+morning hours disagree between periods; 15:00 has too few trades to read.
+
+### What it is not
+
+**Not the entry-score threshold.** The score bar rises from 70 to 80 over
+11:30–14:00, so afternoon trades face a stricter filter for part of the window. But
+mean setup score differs by under two points between the groups (86.3 vs 84.3
+holdout, 85.5 vs 84.0 tuning), and score is uninformative about outcome anyway: with
+the midday threshold dropped to 60, trades scoring under 80 average **+0.315 R**
+against **+0.312** for those at or above it (tuning, n=298 and n=391) — a difference
+of 0.002 R. The cut separates nothing.
+
+**Not robust to the tail.** Dropping the five best afternoon trades takes the holdout
+from p=0.0088 to **p=0.0967**, and the tuning period from p=0.0140 to **p=0.1389**.
+The effect is carried by a handful of trades. That is consistent with everything else
+about this strategy — 6.5% of trades produce all the profit — but it means the result
+rests on a thin tail and should be re-checked as more data accumulates.
+
+### Honesty about how the cut was chosen
+
+The 13:00 boundary was picked AFTER looking at the hourly table, not before. Testing
+four cut points on two periods:
+
+| cut | tuning diff | p | holdout diff | p |
+|---|---|---|---|---|
+| 11:00 | −0.363 | 0.978 | +0.203 | 0.049 |
+| 12:00 | +0.221 | 0.050 | +0.092 | 0.174 |
+| **13:00** | **+0.314** | **0.014** | **+0.247** | **0.009** |
+| **14:00** | **+0.360** | **0.018** | **+0.238** | **0.025** |
+
+13:00 and 14:00 both hold on both periods; 11:00 and 12:00 do not. So it is not a
+knife-edge at one arbitrary minute, but the boundary is post-hoc and four cuts were
+tried. Note also that the user's own MP example (12:25) falls on the wrong side of
+the cut that came out of this.
+
+### And it has resisted exploitation
+
+The obvious move — take MORE trades in the good window by lowering the 11:30–14:00
+entry-score threshold — LOSES money on the tuning period (the holdout arm of that
+sweep was still running when this was written; it gets its own section when it
+lands). Every value tested is worse than the shipped 80: −$101 at 75, −$198 at 70,
+−$178 at 65, −$21 at 60, none significant. The mechanism is displacement:
+the extra midday entries are only slightly worse per trade than what they crowd out
+(+0.167 R against +0.194 at threshold 60), but the 5-concurrent and 15-per-day caps
+mean every marginal entry spends a slot a better trade would have used later.
+
+This is now the third effect that is real as a DESCRIPTION and inert as a RULE — the
+silver-trend regime and its scaled-sizing variant were the first two. The pattern is
+consistent and worth stating as a general finding about this strategy at this account
+size: **when slots are the binding constraint, a conditional that tells you which
+trades are better can only pay if it helps you CHOOSE between them. It cannot pay by
+making you take more.** Nothing tested so far improves the choosing.
+
+The open question this leaves, untested: whether anything can be dropped from the
+morning to free slots for the afternoon, rather than added.
