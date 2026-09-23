@@ -2247,3 +2247,51 @@ reached from the opposite direction — not "can a feature pick winners" but "ca
 feature exclude losers." Neither works on this data.
 
 **Running tally: 28 tested, 2 adopted**, both mechanical cost controls.
+
+## The live-account configuration: $5,000 cash, $2,500 x 2, settled cash only (2026-09-23)
+
+**This is now the shipped config and the baseline for everything that follows.** The
+account moved to Interactive Brokers. Its type reads "No Borrow Margin"; IBKR support
+confirmed it "operates like a cash account - you can only trade with settled cash",
+with no borrowing. The user chose $2,500 per trade, two at a time.
+
+Every earlier baseline in this file (e.g. `rn_base`, $3,164.00) let five $2,000
+positions be open at once -- $10,000 on a $5,000 account -- and reused sale proceeds
+the same day. The live account can do neither. Shipped config, no overrides:
+
+| setup | holdout trades | holdout net | max DD | tuning trades | tuning net | max DD |
+|---|---|---|---|---|---|---|
+| earlier baseline (borrowing, 5 x $2,000) | 1,001 | $3,164.00 | $270 | 592 | $2,556.24 | $467 |
+| $2,500 x 2, no borrowing, same-day reuse | 816 | $3,082.81 | $187 | 398 | $2,381.24 | $327 |
+| **$2,500 x 2, settled cash only (SHIPPED)** | **671** | **$2,775.91** | **$187** | **286** | **$1,598.00** | **$291** |
+
+* Holdout: **$4.89 per session, about $24 a week**, 88% of the earlier baseline, with
+  a smaller max drawdown ($187 against $270). 40 trades above +3R, against 65.
+* Tuning: **$8.28 per session, about $41 a week**, 63% of the earlier baseline. The
+  tuning period loses more because it is busier: settled-cash-only turns away more
+  of its signals once the day's two purchases are spent.
+
+### What changed in the code
+
+* `max_total_exposure_pct_equity: 1.0` -- all open positions at cost stay within
+  equity. No borrowing.
+* `max_daily_purchases_pct_equity: 1.0` -- total bought per day is capped at the
+  equity the day started with. Sale proceeds settle T+1, so selling does not free
+  cash for another purchase the same day (doing so and selling before settlement is
+  a good faith violation). Flat overnight means start-of-day equity equals settled
+  cash.
+* `min_trimmed_fraction: 0.5` -- if those rules would shrink a trade below half its
+  intended size, skip it. Without it, the $14.80 left after two $2,492.60 buys
+  bought one share of a third stock nearly every day.
+
+Neither rule is enforced by the broker for us: the IBKR paper account reports
+$20,000 of buying power on $5,000 of cash.
+
+### Verified on the backtest output
+
+Purchases never exceeded the day's starting budget on any day of either period.
+Some days show three buys; they are within budget (a wide stop makes the risk budget
+size one position small, e.g. $583). One holdout day appeared $2.81 over when checked
+against AFTER-COST equity: the bot budgets from the simulated broker's balance, which
+does not deduct modelled trading costs ($47.65 accumulated by then). The real
+account's balance already reflects actual costs, so this does not carry over.
