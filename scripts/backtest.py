@@ -162,6 +162,13 @@ def main() -> int:
              "VWAP_RECLAIM instead (applied in-memory only).",
     )
     parser.add_argument(
+        "--enable-orb", action="store_true",
+        help="EXPERIMENT override: turn ORB_PULLBACK_CONTINUATION back ON. It was "
+             "disabled 2026-09-09 after losing money, but that was measured at "
+             "max_concurrent_positions=1 with no cost model, no stop floor and no "
+             "price screen -- the displacement argument behind it is far weaker at 5.",
+    )
+    parser.add_argument(
         "--max-concurrent-positions", type=int, default=None,
         help="EXPERIMENT override: replaces behavior.max_concurrent_positions, how many "
              "positions may be open at once (applied in-memory only).",
@@ -373,7 +380,7 @@ def main() -> int:
     experiment_active = any([
         args.max_risk_dollars is not None, args.stop_atr_multiplier is not None,
         args.max_hold_days is not None, args.allow_red_overnight, args.scale_target_with_stop,
-        args.preferred_r_min is not None, args.disable_orb,
+        args.preferred_r_min is not None, args.disable_orb, args.enable_orb,
         args.max_concurrent_positions is not None,
         args.max_position_size_dollars is not None, args.max_trades_per_day is not None,
         args.trailing_atr is not None, args.max_position_pct_equity is not None,
@@ -409,6 +416,9 @@ def main() -> int:
         if args.preferred_r_min is not None:
             config.strategy["reward_risk"]["preferred_r_min"] = args.preferred_r_min
             print(f"  reward_risk.preferred_r_min = {args.preferred_r_min}")
+        if args.enable_orb:
+            config.strategy["setups"]["enable_orb_pullback"] = True
+            print("  setups.enable_orb_pullback = True")
         if args.disable_orb:
             config.strategy["setups"]["enable_orb_pullback"] = False
             print("  setups.enable_orb_pullback = False")

@@ -1991,8 +1991,10 @@ chart patterns, 6 exit variants, a regime filter and a regime-scaled sizing rule
 this is the first thing in this project to replicate out of sample at p < 0.05 on
 both periods.**
 
-Per hour (every trade in both runs is a VWAP_RECLAIM; ORB_PULLBACK_CONTINUATION never
-fires, which is worth its own look some time):
+Per hour (every trade in both runs is a VWAP_RECLAIM, because
+`setups.enable_orb_pullback` is false — ORB was deliberately disabled on 2026-09-09
+after it lost money, not starved by a bug; see the re-test section below, since the
+configuration it was judged under has changed materially):
 
 | hour | holdout n | holdout mean R | holdout >3R | tuning n | tuning mean R | tuning >3R |
 |---|---|---|---|---|---|---|
