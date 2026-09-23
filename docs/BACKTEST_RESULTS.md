@@ -2163,3 +2163,87 @@ The one result worth revisiting if the account ever clears PDT: tuning drawdown 
 from $467 to $345 with ORB on, and ret/DD goes 5.5 → 8.8. The holdout disagrees
 (11.7 → 10.9), so this is not a finding — but it is the only cell where ORB looks
 like more than noise.
+
+## Chop filter and structure confirmation: tested and REJECTED (2026-09-23)
+
+From chart review: a VWAP reclaim inside sideways chop looks like a different animal
+from one that starts a sustained move, so perhaps reject reclaims that happen amid
+repeated crossings of a flat VWAP, or require a higher low followed by a break of the
+bounce high. Examples, all −1.00R stop-outs, all midday, none a low-score trade:
+
+| trade | entry | score | outcome |
+|---|---|---|---|
+| SCCO 2023-09-13 | 11:05 @ 72.85 | 80.4 | −1.00R, stop hit |
+| AG 2025-10-24 | 11:10 @ 12.94 | 77.9 | −1.00R, stop hit |
+| DRD 2025-10-24 | 11:25 @ 25.54 | 76.8 | −1.00R, stop hit |
+
+All three are holdout trades, so the holdout is discovery-contaminated and TUNING is
+the out-of-sample set — same inversion as the time-of-day test.
+
+### The pre-registered version failed as a test of the hypothesis
+
+Thresholds fixed in advance (12-bar window before entry; choppy = ≥3 VWAP crossings;
+flat = VWAP drift < 0.15% of price) flagged **only 1 of the 3 examples**. SCCO has one
+crossing and 0.305% drift; AG has two crossings. The operationalisation did not
+capture what was actually seen on the charts, so its null result answered a different
+question. Recorded because the failure mode is instructive: a pre-registered threshold
+that misses the phenomenon is not a refutation of it.
+
+Retuning the definition until the examples fit would be curve-fitting to three trades
+selected BECAUSE they lost. The whole parameter space was swept instead.
+
+### The sweep: 16 definitions × 2 periods
+
+Negative difference = flagged (rejected) trades were worse = the filter helps.
+
+| min crossings | max drift | tuning diff | p | holdout diff | p |
+|---|---|---|---|---|---|
+| 1 | 0.35% | **−0.228** | 0.117 | **+0.181** | 0.874 |
+| 1 | 0.10% | −0.078 | 0.290 | −0.016 | 0.433 |
+| 2 | 0.15% | −0.008 | 0.470 | −0.085 | 0.191 |
+| 2 | 0.35% | −0.085 | 0.266 | −0.108 | 0.148 |
+| 3 | 0.10% | **+0.085** | 0.719 | **−0.135** | 0.090 |
+| 4 | 0.15% | **+0.126** | 0.751 | **−0.277** | 0.009 |
+| 4 | 0.25% | +0.203 | 0.868 | −0.214 | 0.033 |
+
+**The sign inverts systematically between periods.** At strict definitions the holdout
+says the filter helps (p=0.009) while tuning says it hurts; at loose ones the reverse.
+That is the signature of noise across 32 tests, and the cells reaching p<0.05 are what
+multiple comparisons produce on their own.
+
+### The decisive number: it eats the tail
+
+Every cell destroys >3R trades — from 7 at the narrowest definition to 63 at the
+broadest. The loosest cell, the only one wide enough to capture all three examples
+(≥1 crossing, drift < 0.35%):
+
+| | rejects | net | >3R trades |
+|---|---|---|---|
+| tuning | 493 of 592 (83%) | $2,556 → **$757** (−70%) | 45 → 10 |
+| holdout | 895 of 1001 (89%) | $3,164 → **$199** (−94%) | 65 → **2** |
+
+The definition broad enough to catch those three losers rejects nearly nine tenths of
+all trades and **destroys 63 of the 65 trades that carry the profit**. Chop before
+entry is not a marker of a bad trade; it is a marker of a trade.
+
+The pre-registered adoption standard — a filter that improves mean R while removing
+>3R trades is a reject regardless of p-value — fails in all 16 cells.
+
+### The structure filter is close to a no-op
+
+"Higher low followed by a break of the bounce high", searched over the same 12-bar
+window, is already present in **94%** of trades (554/592 tuning, 944/1001 holdout).
+Requiring it removes 6% of trades that are barely worse (+0.059 tuning p=0.43, +0.043
+holdout p=0.42). A stricter definition would run into the same tail problem as the
+chop filter.
+
+### The general lesson, which is about method
+
+Reviewing losing trades and generalising from them produces filters that reject almost
+everything, because **losers look like winners at the moment of entry**. The three
+examples are genuinely weak trades; what made them weak is not visible in the bars
+before the entry. That is the same wall as the 24 null point-in-time predictors, now
+reached from the opposite direction — not "can a feature pick winners" but "can a
+feature exclude losers." Neither works on this data.
+
+**Running tally: 28 tested, 2 adopted**, both mechanical cost controls.
