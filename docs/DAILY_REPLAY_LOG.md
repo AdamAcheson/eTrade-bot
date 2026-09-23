@@ -7,11 +7,16 @@ session is noise -- 30% of holdout sessions took zero trades -- and only a month
 more of these makes the live trade rate and rejection mix comparable to the
 backtest's.
 
-**The `net P&L` column is on the replay's default $100,000 paper equity with
-$25,000 positions, NOT the ~$5,000 live account.** Every position hits the cap, so
-divide by 12.5 for the $5,000 / $2,000-cap basis (2026-09-22: $810.83 here is
-$64.72 there). To reproduce a row on the live basis:
-`python3 scripts/backtest.py --days 1 --starting-equity 5000 --max-position-size-dollars 2000 --max-position-pct-equity 1.0`
+**Equity basis of the `net P&L` column changed on 2026-09-23.**
+
+* **Rows up to and including 2026-09-22** are on the old default of $100,000 paper
+  equity with $25,000 positions. Divide by 12.5 for a $5,000 / $2,000-per-trade basis
+  (2026-09-22: $810.83 here is $64.72 there).
+* **Rows from 2026-09-23 on** use the shipped config for the live account: $5,000
+  cash, $2,500 per trade, two at a time, never more than the account is worth. No
+  conversion needed -- these are the account's own numbers.
+
+All rows are SIMULATED replays of a finished session, not executed trades.
 
 Backtest baselines to compare against (19-ticker holdout, 568 sessions):
 

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import time
 from bisect import bisect_left
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time as dtime, timedelta
 from typing import Dict, List, Optional
 
@@ -45,7 +45,9 @@ from positions.overnight import evaluate_overnight_eligibility, shares_to_hold_o
 from positions.position_manager import PositionManager
 from reporting.daily_report import generate_daily_report
 from reporting.journal import SignalJournal, TradeJournal
-from risk.position_sizing import calc_position_size
+from risk.position_sizing import (
+    calc_position_size, cap_shares_to_exposure, cap_shares_to_settled_cash,
+)
 from risk.risk_manager import RiskManager
 from strategy.signal_engine import EvaluationContext, evaluate_ticker
 
@@ -306,8 +308,41 @@ class TradingBot:
             max_position_size_pct_equity=self.config.risk["sizing"]["max_position_size_pct_equity"],
             max_risk_dollars_per_trade=self.config.risk["account"].get("max_risk_dollars_per_trade"),
         )
-        if sizing.shares <= 0:
+        shares = cap_shares_to_exposure(
+            shares=sizing.shares,
+            entry_price=signal.entry_price,
+            open_notional=self.position_manager.open_notional(),
+            account_equity=account.equity,
+            max_total_exposure_pct_equity=self.config.risk["sizing"].get("max_total_exposure_pct_equity"),
+        )
+        daily_pct = self.config.risk["sizing"].get("max_daily_purchases_pct_equity")
+        if daily_pct is not None and shares > 0:
+            if self.risk_manager.day_start_equity is None:
+                self.risk_manager.day_start_equity = account.equity
+            settled = cap_shares_to_settled_cash(
+                shares=shares,
+                entry_price=signal.entry_price,
+                purchases_today=self.risk_manager.purchases_today,
+                day_start_equity=self.risk_manager.day_start_equity,
+                max_daily_purchases_pct_equity=daily_pct,
+            )
+            if settled < shares:
+                shares = settled
+                capped_by = "max_daily_purchases_pct_equity"
+            else:
+                capped_by = "max_total_exposure_pct_equity"
+        else:
+            capped_by = "max_total_exposure_pct_equity"
+        if shares <= 0:
             return
+        # A cash rule that trims a trade to a sliver (after two $2,492.60 buys, $14.80
+        # of settled cash buys 1 share) should skip it, not place a $10 position. Small
+        # trims -- $2,500 down to $2,400 after a losing day -- still go through.
+        min_fraction = self.config.risk["sizing"].get("min_trimmed_fraction", 0.0)
+        if shares < min_fraction * sizing.shares:
+            return
+        if shares != sizing.shares:
+            sizing = replace(sizing, shares=shares, capped_by=capped_by)
 
         result = self.order_manager.submit_entry_order(
             ticker=ticker,
@@ -340,6 +375,8 @@ class TradingBot:
 
         order = self.broker.get_order_status(result.order.order_id)
         if order.status == OrderStatus.FILLED:
+            self.risk_manager.record_purchase(
+                (order.avg_fill_price or order.limit_price) * order.filled_quantity)
             self.position_manager.open_position(
                 ticker=ticker,
                 benchmark=ticker_cfg.benchmark,

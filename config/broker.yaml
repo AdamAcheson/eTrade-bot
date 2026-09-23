@@ -20,7 +20,7 @@ mode: paper   # paper (default, fully simulated) | sandbox (real E*TRADE sandbox
 market_data_source: memory   # memory | etrade
 
 paper:
-  starting_equity: 100000
+  starting_equity: 5000   # matches the live cash account and the IBKR paper account
   fill_model: touch   # a resting limit order fills once the quote touches/crosses it
 
 etrade:

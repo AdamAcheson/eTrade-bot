@@ -122,3 +122,57 @@ def calc_position_size(
             capped_by = "max_position_size_pct_equity"
 
     return PositionSizeResult(shares=max(shares, 0), risk_dollars=risk_dollars, risk_per_share=rps, capped_by=capped_by)
+
+
+def cap_shares_to_exposure(
+    shares: int,
+    entry_price: float,
+    open_notional: float,
+    account_equity: float,
+    max_total_exposure_pct_equity: Optional[float],
+) -> int:
+    """Trim a new position so every open position together stays within
+    `max_total_exposure_pct_equity` of the account's equity. At 1.0 that is "never
+    hold more than the account is worth" -- the rule for a cash account, or any
+    account that must not borrow.
+
+    The per-position caps alone do not guarantee it: two $2,500 positions fit a
+    $5,000 account, but after a losing day equity may be $4,900, and a broker that
+    offers intraday buying power (the IBKR paper account reports $20,000 on $5,000)
+    would fill the second order anyway. Open positions are counted at COST, which is
+    what was actually spent. None disables the check.
+    """
+    if max_total_exposure_pct_equity is None or shares <= 0:
+        return max(shares, 0)
+    if entry_price <= 0:
+        return 0
+    room = max_total_exposure_pct_equity * account_equity - open_notional
+    if room <= 0:
+        return 0
+    return min(shares, math.floor(room / entry_price))
+
+
+def cap_shares_to_settled_cash(
+    shares: int,
+    entry_price: float,
+    purchases_today: float,
+    day_start_equity: float,
+    max_daily_purchases_pct_equity: Optional[float],
+) -> int:
+    """Cash account: buy only with SETTLED cash. Money from a sale settles the next
+    business day (T+1), so selling a position does not free its cash for another
+    purchase the same day. Because every position is closed before the close,
+    settled cash at the open equals the equity the day started with; today's
+    purchases, at cost, are what has been spent from it.
+
+    On $5,000 at $2,500 a trade this allows two entries a day, full stop -- a third
+    signal after the first two have closed is refused, where a margin account (or
+    the IBKR paper account, which reports $20,000 of buying power) would take it.
+    Buying with unsettled proceeds and selling before they settle is a "good faith
+    violation" in a cash account. None disables the check.
+    """
+    return cap_shares_to_exposure(
+        shares=shares, entry_price=entry_price, open_notional=purchases_today,
+        account_equity=day_start_equity,
+        max_total_exposure_pct_equity=max_daily_purchases_pct_equity,
+    )

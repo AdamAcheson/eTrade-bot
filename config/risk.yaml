@@ -9,9 +9,30 @@ account:
   # scaling with account size. null (default) preserves %-of-equity sizing.
   max_risk_dollars_per_trade: null
 
+# Sized for the live account as chosen 2026-09-23: $5,000, CASH ONLY, no borrowing,
+# $2,500 per trade, two at a time. At $5,000 the notional cap and the 50%-of-equity
+# cap agree at $2,500; below $5,000 the percentage takes over, so two positions
+# never add up to more than the account.
 sizing:
-  max_position_size_dollars: 25000
-  max_position_size_pct_equity: 0.25
+  max_position_size_dollars: 2500
+  max_position_size_pct_equity: 0.5
+  # Never hold more than the account is worth: every open position, at cost, plus the
+  # new one, stays within this fraction of equity. 1.0 = no borrowing. This is the
+  # check that keeps the paper account honest -- IBKR's paper account reports $20,000
+  # of buying power on $5,000 and would happily fill orders the real cash account
+  # could not. null disables it.
+  max_total_exposure_pct_equity: 1.0
+  # SETTLED CASH ONLY. IBKR confirmed (2026-09-23) the account "operates like a cash
+  # account - you can only trade with settled cash". Sale proceeds settle the next
+  # business day, so total purchases per day are capped at the equity the day started
+  # with: on $5,000 at $2,500 a trade, two entries a day and no more, even after both
+  # have closed. Buying with unsettled money and selling before it settles is a good
+  # faith violation. null disables it (a margin account would).
+  max_daily_purchases_pct_equity: 1.0
+  # If the two cash rules above would shrink a trade below this fraction of its
+  # intended size, skip it rather than open a sliver (two $2,492.60 buys leave $14.80,
+  # which would otherwise buy one share of a third stock nearly every day).
+  min_trimmed_fraction: 0.5
 
 stops:
   atr_multiplier:
@@ -37,7 +58,7 @@ safety:
   max_trades_per_day: 15
   max_daily_loss_pct: 0.02
   max_consecutive_losses: 2
-  max_position_size_dollars: 25000
+  max_position_size_dollars: 2500
   max_slippage_pct: 0.10
   max_spread_pct_default: 0.25
   data_staleness_limit_seconds: 30
@@ -52,13 +73,15 @@ safety:
 behavior:
   averaging_down: false
   pyramiding: false
-  # 5, not 1: ~90% of qualifying signals were being rejected purely because the
-  # single slot was already occupied, and the crowded-out signals backtest as well
-  # as the taken ones (1 -> 5 slots: +39% net P&L for +0.3pp drawdown). Gains flatten
-  # past 5 -- 8 slots added only $571 more over the same 183 days.
-  # NOTE: 5 open positions in this universe is closer to one bet than five. On
+  # 2: two $2,500 positions fill a $5,000 cash account with no borrowing.
+  # History: raised 1 -> 5 when positions were small relative to the account (~90% of
+  # qualifying signals were being rejected purely because the single slot was taken;
+  # 1 -> 5 slots gave +39% net for +0.3pp drawdown). Five slots at $2,000 needs $10,000,
+  # i.e. borrowing, which the live account will not do. Simulated on the holdout with
+  # no borrowing: $2,500 x 2 netted about $2,800-2,900, the best of the sizes tried.
+  # NOTE: even two open positions in this universe are close to one bet. On
   # 2026-02-26 every ticker fell 32-41% together.
-  max_concurrent_positions: 5
+  max_concurrent_positions: 2
 
 overnight:
   default_position_multiplier: 1.0

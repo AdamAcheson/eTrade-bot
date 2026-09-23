@@ -30,6 +30,11 @@ class RiskManager:
         self.cooldown_until: Dict[str, datetime] = {}
         self._entries_blocked: bool = False
         self._block_reason: Optional[str] = None
+        # Cash-account settlement: what has been BOUGHT today, and the equity the day
+        # started with (== settled cash, since every position is flat overnight and
+        # yesterday's sale proceeds settle T+1, i.e. this morning).
+        self.purchases_today: float = 0.0
+        self.day_start_equity: Optional[float] = None
 
     # --- external state feeds -------------------------------------------------
     def block_new_entries(self, reason: str) -> None:
@@ -52,7 +57,12 @@ class RiskManager:
         else:
             self.consecutive_losses = 0
 
+    def record_purchase(self, cost: float) -> None:
+        self.purchases_today += cost
+
     def reset_daily_counters(self) -> None:
+        self.purchases_today = 0.0
+        self.day_start_equity = None
         self.trades_today = 0
         self.daily_realized_pnl = 0.0
         self.consecutive_losses = 0

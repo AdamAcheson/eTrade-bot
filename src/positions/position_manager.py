@@ -59,6 +59,11 @@ class PositionManager:
     def open_position_count(self) -> int:
         return sum(1 for p in self._positions.values() if p.is_open())
 
+    def open_notional(self) -> float:
+        """Cost of everything currently held (entry price x shares), i.e. the cash
+        tied up in open positions."""
+        return sum(p.entry_price * p.shares for p in self.open_positions())
+
     def get_position(self, ticker: str) -> Optional[Position]:
         return self._positions.get(ticker)
 
