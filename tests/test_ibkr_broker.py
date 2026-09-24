@@ -420,7 +420,7 @@ def test_script_flags_a_share_left_behind():
     ib = ScriptIB(plan=[(0, None), (None, None), (0, None)])   # the sell never fills
     code, text = _run_script(ib)
     assert code == 1
-    assert "Sell the extra AG share in TWS by hand" in text
+    assert "Sell the extra AG share in TWS" in text
 
 
 def test_no_resend_on_a_broker_whose_fills_arrive_later(tmp_path, monkeypatch):
@@ -435,3 +435,85 @@ def test_no_resend_on_a_broker_whose_fills_arrive_later(tmp_path, monkeypatch):
     monkeypatch.setattr(type(bot.broker), "reports_final_fills", False)
     bot._submit_exit_and_simulate(t, shares, 10.25)
     assert len([o for o in ib.placed if o.action == "SELL"]) == 1
+
+
+def test_script_ignores_orders_left_over_from_an_earlier_run():
+    """2026-09-24: a TWS pop-up held the first run's orders, so a 1-share buy at half
+    price was still open during the second run and was counted as that run's failure."""
+    from ib_async import LimitOrder
+    ib = ScriptIB(plan=[(0, None), (0, None), (None, 18.72), (None, 18.70)])
+    stale = LimitOrder("BUY", 1, 9.32)
+    stale_trade = ib.placeOrder(SimpleNamespace(symbol="AG"), stale)
+    stale_trade.orderStatus.status = "Submitted"   # still resting
+    ib.cancelOrder = lambda order: [t for t in ib._trades if t.order is order and t is not stale_trade
+                                    and setattr(t.orderStatus, "status", "Cancelled")]
+    code, text = _run_script(ib)
+    assert "1 order(s) were already open before this test" in text
+    assert code == 0, text
+
+
+# --- scripts/ibkr_paper_flatten.py -----------------------------------------------
+
+def _flatten():
+    import importlib.util, os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "ibkr_paper_flatten", os.path.join(root, "scripts", "ibkr_paper_flatten.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class FlattenIB(ScriptIB):
+    def reqAllOpenOrders(self):
+        return self.openTrades()
+
+    def reqGlobalCancel(self):
+        for t in self.openTrades():
+            t.orderStatus.status = "Cancelled"
+
+
+def _run_flatten(ib, answer="YES"):
+    clock = Clock()
+    lines = []
+    code = _flatten().run(lambda: IBKRPaperBrokerAdapter(CFG, ib=ib, sleep=clock.sleep, clock=clock),
+                          ask=lambda _: answer, out=lines.append)
+    return code, "\n".join(lines)
+
+
+def _leave_behind(ib):
+    """The state the pop-up left: 1 AG share held and a half-price buy still open."""
+    from ib_async import LimitOrder
+    ib.qty = 1
+    ib.plan = [(0, None)]
+    t = ib.placeOrder(SimpleNamespace(symbol="AG"), LimitOrder("BUY", 1, 9.32))
+    t.orderStatus.status = "Submitted"
+
+
+def test_flatten_cancels_orders_and_sells_positions():
+    ib = FlattenIB()
+    _leave_behind(ib)
+    code, text = _run_flatten(ib)
+    assert code == 0, text
+    assert "account is clean" in text
+    assert ib.qty == 0 and ib.openTrades() == []
+    sell = ib.placed[-1]
+    assert sell.action == "SELL" and sell.orderType == "MKT" and sell.account == "DU1234567"
+
+
+def test_flatten_changes_nothing_without_yes():
+    ib = FlattenIB()
+    _leave_behind(ib)
+    code, text = _run_flatten(ib, answer="no")
+    assert "Aborted" in text and ib.qty == 1 and len(ib.openTrades()) == 1
+
+
+def test_flatten_refuses_a_live_account():
+    code, text = _run_flatten(FlattenIB(accounts=("U7654321",)))
+    assert code == 2 and "REFUSED" in text
+
+
+def test_flatten_on_a_clean_account_does_nothing():
+    ib = FlattenIB()
+    code, text = _run_flatten(ib)
+    assert code == 0 and "Nothing to clean up" in text and ib.placed == []

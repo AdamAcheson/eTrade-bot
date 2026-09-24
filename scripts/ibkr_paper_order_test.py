@@ -92,6 +92,10 @@ def run(make_adapter: Callable[[], IBKRPaperBrokerAdapter], symbol: str,
         acct = broker.get_account()
         out(f"  cash ${acct.cash:,.2f}   net liquidation ${acct.equity:,.2f}")
         start_qty = held(broker, symbol, 0, tries=1)
+        already_open = {o.order_id for o in broker.get_open_orders()}
+        if already_open:
+            out(f"  note: {len(already_open)} order(s) were already open before this test "
+                f"(scripts/ibkr_paper_flatten.py clears them); they are not counted")
         out(f"  {symbol} held before the test: {start_qty}")
 
         price = last_price(broker.ib, broker._contract(symbol))
@@ -127,8 +131,8 @@ def run(make_adapter: Callable[[], IBKRPaperBrokerAdapter], symbol: str,
         failures += 0 if ok else 1
         out(f"\n  {'PASS' if ok else 'FAIL'}  {symbol} held after the test: {end_qty} (before: {start_qty})")
         if not ok:
-            out(f"        Sell the extra {symbol} share in TWS by hand.")
-        leftover = broker.get_open_orders(symbol)
+            out(f"        Sell the extra {symbol} share in TWS, or run scripts/ibkr_paper_flatten.py.")
+        leftover = [o for o in broker.get_open_orders(symbol) if o.order_id not in already_open]
         if leftover:
             failures += 1
             out(f"  FAIL  {len(leftover)} order(s) still open -- cancel them in TWS")

@@ -3,7 +3,7 @@
 Findings from `scripts/ibkr_check.py`, run by the account holder on their own Mac
 against TWS (paper). Newest first.
 
-## Order connection (built 2026-09-24, not yet run against TWS)
+## Order connection (built and verified on paper 2026-09-24)
 
 `src/broker/ibkr.py` (`IBKRPaperBrokerAdapter`), selected by `broker.yaml: mode:
 ibkr_paper`. **Paper accounts only.** config_loader and the adapter each require a
@@ -25,6 +25,23 @@ Test it with `python3 scripts/ibkr_paper_order_test.py` during market hours, wit
 TWS's "Read-Only API" box unticked. It places three 1-share orders: one that cannot
 fill and must cancel, a buy, then a sell. Afterwards it checks the account holds
 what it held before.
+
+**Verified 2026-09-24 ~13:30 ET on DUT160852** (second run): the half-price buy
+came back cancelled; the buy filled at $18.69; the sell filled at $18.68. The paper
+account charged $0.19 per 1-share order, which is the 1%-of-value cap.
+
+**TWS "Order Precautions" pop-up -- answer Yes.** On the first API order TWS asks
+whether to bypass its order precautions for API orders. While that dialog is open
+TWS holds the orders. The adapter timed out and cancelled them, and TWS reported them
+cancelled, but when the dialog was answered it sent them anyway. One buy filled
+(1 AG share the bot did not know about) and the half-price buy stayed open. The
+bot's reconciliation would have flagged that share and blocked AG; it could not
+have prevented it. Keep "Bypass Order Precautions for API Orders" ticked on the
+paper login. For the live login, set the precaution limits just above the bot's
+own ($2,500 per order) rather than leave a dialog that can hold orders.
+
+`scripts/ibkr_paper_flatten.py` cancels every open order and sells every position
+on the paper account (paper-guarded, asks for YES).
 
 **Not yet built:** a market-data feed from IBKR for the live loop
 (`scripts/run_bot.py` still needs `market_data_source: etrade`). That waits on
