@@ -24,6 +24,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from broker.ibkr import IBKRPaperBrokerAdapter, IBKRSafetyError  # noqa: E402
 
 
+def open_orders_now(broker):
+    """Ask TWS afresh for every open order, from any API client or TWS itself.
+
+    Not broker.get_open_orders(): that reads ib_async's local cache, and TWS does not
+    send status updates for another client's orders. After a global cancel, an
+    order placed by the order test (a different client id) stayed "Submitted" in
+    the cache although TWS had cancelled it (2026-09-24)."""
+    return [broker._to_order(t) for t in broker.ib.reqAllOpenOrders() if not t.isDone()]
+
+
 def run(make_adapter: Callable[[], IBKRPaperBrokerAdapter],
         ask: Callable[[str], str] = input, out: Callable[[str], None] = print) -> int:
     try:
@@ -35,9 +45,7 @@ def run(make_adapter: Callable[[], IBKRPaperBrokerAdapter],
         out(f"FAIL  could not connect: {type(e).__name__}: {e}")
         return 2
     try:
-        # Orders from every API client and from TWS itself, not just this one.
-        broker.ib.reqAllOpenOrders()
-        orders = broker.get_open_orders()
+        orders = open_orders_now(broker)
         positions = broker.get_positions()
         out(f"Paper account {broker.account}")
         out(f"  open orders: {len(orders)}")
@@ -65,8 +73,7 @@ def run(make_adapter: Callable[[], IBKRPaperBrokerAdapter],
                 out(f"  {p.ticker}: short {p.quantity} -- not something this bot opens; close it in TWS")
 
         broker.ib.sleep(2)
-        broker.ib.reqAllOpenOrders()
-        left_orders = broker.get_open_orders()
+        left_orders = open_orders_now(broker)
         left_positions = {t: p for t, p in broker.get_positions().items() if p.quantity > 0}
         ok = not left_orders and not left_positions
         out(f"\nopen orders now: {len(left_orders)}   stock positions now: {len(left_positions)}")

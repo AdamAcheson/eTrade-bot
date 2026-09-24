@@ -465,12 +465,16 @@ def _flatten():
 
 
 class FlattenIB(ScriptIB):
+    """Like TWS for orders placed by ANOTHER client id: a global cancel cancels them
+    at TWS, but no status update reaches this connection, so its cached copy still
+    reads "Submitted". Only a fresh reqAllOpenOrders shows the truth."""
+
     def reqAllOpenOrders(self):
-        return self.openTrades()
+        return [t for t in self._trades if not t.isDone() and not getattr(t, "gone", False)]
 
     def reqGlobalCancel(self):
-        for t in self.openTrades():
-            t.orderStatus.status = "Cancelled"
+        for t in self._trades:
+            t.gone = True
 
 
 def _run_flatten(ib, answer="YES"):
@@ -496,7 +500,8 @@ def test_flatten_cancels_orders_and_sells_positions():
     code, text = _run_flatten(ib)
     assert code == 0, text
     assert "account is clean" in text
-    assert ib.qty == 0 and ib.openTrades() == []
+    assert ib.qty == 0 and ib.reqAllOpenOrders() == []
+    assert len(ib.openTrades()) == 1          # the stale cached copy the old check trusted
     sell = ib.placed[-1]
     assert sell.action == "SELL" and sell.orderType == "MKT" and sell.account == "DU1234567"
 
@@ -505,7 +510,7 @@ def test_flatten_changes_nothing_without_yes():
     ib = FlattenIB()
     _leave_behind(ib)
     code, text = _run_flatten(ib, answer="no")
-    assert "Aborted" in text and ib.qty == 1 and len(ib.openTrades()) == 1
+    assert "Aborted" in text and ib.qty == 1 and len(ib.reqAllOpenOrders()) == 1
 
 
 def test_flatten_refuses_a_live_account():
