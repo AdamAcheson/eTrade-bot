@@ -286,26 +286,57 @@ def _run_bot():
 def test_startup_report_says_delayed_loudly():
     p, _, _ = _provider(FakeIB(mdt=3))
     p.subscribe(["AG"])
-    text = "\n".join(_run_bot().ibkr_data_report(p, ["AG"]))
+    text = "\n".join(_run_bot().ibkr_data_report(p))
     assert "DELAYED" in text and "plumbing" in text
 
 
 def test_startup_report_says_live():
     p, _, _ = _provider(FakeIB(mdt=1))
     p.subscribe(["AG"])
-    text = "\n".join(_run_bot().ibkr_data_report(p, ["AG"]))
+    text = "\n".join(_run_bot().ibkr_data_report(p))
     assert "LIVE" in text and "DELAYED" not in text
 
 
-def test_volume_check_flags_a_scale_mismatch(monkeypatch):
+def test_volume_scale_is_measured_on_completed_shared_sessions(monkeypatch):
     rb = _run_bot()
     p, _, _ = _provider()
     p.subscribe(["AG"])
-    cached_day = [SimpleNamespace(volume=100.0)] * 4        # IBKR says 4000, cache 400
-    monkeypatch.setattr(rb, "cached_sessions", lambda sym: {"2026-09-24": cached_day})
-    assert rb.volume_check(p, ["AG"]) == (10.0, 1)
-    text = "\n".join(rb.ibkr_data_report(p, ["AG"]))
-    assert "RVOL will be biased" in text
+    p._bars["AG"] = _bars(day=23, n=4, volume=780.0) + _bars(day=24, n=4, volume=5000.0)
+    cached = {"2026-09-23": [SimpleNamespace(volume=1000.0)] * 4,
+              "2026-09-24": [SimpleNamespace(volume=1.0)] * 4}     # today: ignored
+    monkeypatch.setattr(rb, "cached_sessions", lambda sym: cached)
+    assert rb.volume_scales(p, ["AG"], "2026-09-24") == {"AG": pytest.approx(0.78)}
+
+
+def test_baselines_are_scaled_and_unmeasured_symbols_take_the_median():
+    rb = _run_bot()
+    baselines = {"AG": {0: 100.0, 1: 200.0}, "HL": {0: 50.0}, "CDE": {0: 10.0}}
+    median, n = rb.apply_volume_scales(baselines, {"AG": 0.78, "HL": 0.70, "CDE": 0.90})
+    assert (median, n) == (0.78, 3)
+    assert baselines["AG"] == {0: pytest.approx(78.0), 1: pytest.approx(156.0)}
+    b2 = {"AG": {0: 100.0}, "XX": {0: 100.0}}
+    rb.apply_volume_scales(b2, {"AG": 0.5})
+    assert b2["XX"][0] == pytest.approx(50.0)
+
+
+def test_no_shared_session_scales_nothing_and_says_so():
+    rb = _run_bot()
+    baselines = {"AG": {0: 100.0}}
+    assert rb.apply_volume_scales(baselines, {}) == (None, 0)
+    assert baselines["AG"][0] == 100.0
+    p, _, _ = _provider()
+    p.subscribe(["AG"])
+    assert "NOT scaled" in "\n".join(rb.ibkr_data_report(p, (None, 0)))
+
+
+def test_rvol_after_scaling_matches_the_backtests_scale():
+    """IBKR today = 0.78 x what Twelve Data would say. Scaled, RVOL comes out the
+    same as it would have in the backtest, where both sides were Twelve Data."""
+    rb = _run_bot()
+    td_baseline, td_today = 1000.0, 1500.0             # true RVOL 1.5
+    baselines = {"AG": {5: td_baseline}}
+    rb.apply_volume_scales(baselines, {"AG": 0.78})
+    assert (0.78 * td_today) / baselines["AG"][5] == pytest.approx(1.5)
 
 
 def test_report_is_empty_for_other_providers():
@@ -343,3 +374,92 @@ def test_run_bot_ibkr_paper_end_to_end(monkeypatch, capsys, tmp_path):
     assert "IBKRPaperBrokerAdapter" in out and "IBKRMarketDataProvider" in out
     assert "DELAYED" in out and "Stopped." in out
     assert made and not made[0].connected
+
+
+# --- delayed data: the plumbing-test relaxations (2026-09-24: every symbol was
+# skipped silently on the first delayed run) ---------------------------------------
+
+def _delayed_no_quotes(**kw):
+    ib = FakeIB(quote=(math.nan, math.nan, math.nan), mdt=3, **kw)
+    clock = Clock()
+    p = IBKRMarketDataProvider(ib, _contract(), clock=clock, synthetic_spread_pct=lambda s: 0.5)
+    return p, ib, clock
+
+
+def test_delayed_without_quotes_takes_the_quote_from_the_newest_bar():
+    p, _, _ = _delayed_no_quotes()
+    p.subscribe(["AG"])
+    p.poll("AG")
+    q = p.get_state("AG").quote
+    newest = 18.70 + 0.03                               # the forming bar's close
+    assert q.last == pytest.approx(newest)
+    assert q.ask - q.bid == pytest.approx(newest * 0.005)
+    assert "AG" in p.synthetic_quotes
+
+
+def test_live_without_quotes_never_gets_one_from_bars():
+    ib = FakeIB(quote=(math.nan, math.nan, math.nan), mdt=1)
+    p = IBKRMarketDataProvider(ib, _contract(), clock=Clock(), synthetic_spread_pct=lambda s: 0.5)
+    p.subscribe(["AG"])
+    p.poll("AG")
+    assert p.get_state("AG").quote is None
+
+
+def test_real_delayed_quotes_are_used_when_they_arrive():
+    ib = FakeIB(mdt=3)
+    p = IBKRMarketDataProvider(ib, _contract(), clock=Clock(), synthetic_spread_pct=lambda s: 0.5)
+    p.subscribe(["AG"])
+    p.poll("AG")
+    assert p.get_state("AG").quote.bid == 18.69 and not p.synthetic_quotes
+
+
+def test_delayed_data_counts_as_fresh_while_connected():
+    p, _, clock = _delayed_no_quotes(stream=False)      # the case that went silent
+    p.subscribe(["AG"])
+    clock.t += timedelta(minutes=3)
+    p.poll("AG")
+    assert not p.is_stale("AG", 30, clock.t + timedelta(seconds=5))
+
+
+def test_live_data_staleness_stays_strict():
+    p, _, clock = _provider(FakeIB(stream=False, mdt=1))
+    p.subscribe(["AG"])
+    clock.t += timedelta(minutes=3)
+    p.poll("AG")
+    assert p.is_stale("AG", 30, clock.t)
+
+
+def test_health_counts_what_the_bot_can_use():
+    p, _, clock = _delayed_no_quotes()
+    p.subscribe(["AG", "HL"])
+    for s in ("AG", "HL"):
+        p.poll(s)
+    h = p.health(["AG", "HL"], clock.t, 30)
+    assert h == {"symbols": 2, "streaming": 2, "bars_today": 2, "quotes": 0,
+                 "quotes_from_bars": 2, "fresh": 2}
+    line = _run_bot().health_line(p, ["AG", "HL"], clock.t, 30)
+    assert "quotes 0/2 + 2 from bars" in line and "fresh 2/2" in line
+
+
+def test_the_bot_evaluates_symbols_on_delayed_data(tmp_path):
+    """The failure itself: with delayed data and no delayed quotes, the bot must
+    now reach the strategy and log a decision, not skip silently."""
+    from config_loader import load_config
+    from main import TradingBot
+    from broker.paper import PaperBrokerAdapter
+    from reporting.journal import SignalJournal, TradeJournal
+    config = load_config()
+    t = config.auto_tradeable_universe()[0]
+    bench = config.benchmark_of(t)
+    ib = FakeIB(quote=(math.nan, math.nan, math.nan), mdt=3, stream=False)
+    clock = Clock()
+    p = IBKRMarketDataProvider(ib, _contract(), clock=clock,
+                               synthetic_spread_pct=lambda s: config.max_spread_pct(s) * 0.3)
+    p.subscribe([t, bench])
+    clock.t += timedelta(minutes=3)
+    for s in (t, bench):
+        p.poll(s)
+    bot = TradingBot(config, p, PaperBrokerAdapter(5000),
+                     SignalJournal(str(tmp_path / "s.jsonl")), TradeJournal(str(tmp_path / "t.jsonl")))
+    bot.evaluate_and_maybe_enter(t, datetime(2026, 9, 24, 10, 3, tzinfo=ET))
+    assert len(bot.signal_journal.signals) == 1

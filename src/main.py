@@ -686,7 +686,11 @@ def build_default_bot(config: Optional[AppConfig] = None) -> TradingBot:
             ib.connect(cfg.get("host", "127.0.0.1"), int(cfg["port"]),
                        clientId=int(cfg.get("client_id", 21)) + 1, timeout=10, readonly=True)
             contract_for = contract_resolver(ib)
-        data_provider = IBKRMarketDataProvider(ib, contract_for, bar_interval_seconds=bar_seconds)
+        # Used only if prices arrive DELAYED with no bid/ask (paper plumbing tests):
+        # the same synthetic spread scripts/backtest.py uses, 30% of the ticker's max.
+        data_provider = IBKRMarketDataProvider(
+            ib, contract_for, bar_interval_seconds=bar_seconds,
+            synthetic_spread_pct=lambda sym: config.max_spread_pct(sym) * 0.3)
     else:
         data_provider = InMemoryMarketDataProvider()
 

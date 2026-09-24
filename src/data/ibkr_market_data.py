@@ -16,8 +16,15 @@ it in its startup summary. Delayed data is only good for testing the plumbing.
 If IBKR refuses the streaming bar request, the provider falls back to asking for
 the bars again once per bar interval.
 
-No quote is ever invented. A symbol with no valid bid and ask simply has no quote,
-and the bot does not trade it.
+Live data: a symbol with no valid bid and ask has no quote, and the bot does not
+trade it. No quote is invented and the staleness check is strict.
+
+Delayed data (no subscription): this mode exists only to test the plumbing on the paper
+account. Two relaxations apply, and health() counts both. If IBKR sends no delayed
+bid and ask, the quote is taken from the newest bar's close with the synthetic spread
+the backtest uses. Data counts as fresh while the connection is up, because every
+price is ~15 minutes old anyway and a strict 30-second rule would skip every
+symbol. On 2026-09-24 the first delayed run skipped every symbol silently.
 
 ib_async only processes IBKR's messages while its event loop runs. Wait with
 `wait(seconds)` (ib.sleep), never time.sleep, or nothing updates.
@@ -70,7 +77,8 @@ def contract_resolver(ib) -> Callable[[str], object]:
 
 class IBKRMarketDataProvider(MarketDataProvider):
     def __init__(self, ib, contract_for: Callable[[str], object], bar_interval_seconds: int = 300,
-                 clock: Optional[Callable[[], datetime]] = None) -> None:
+                 clock: Optional[Callable[[], datetime]] = None,
+                 synthetic_spread_pct: Optional[Callable[[str], float]] = None) -> None:
         self.ib = ib
         self._contract_for = contract_for
         self.bar_interval = timedelta(seconds=bar_interval_seconds)
@@ -82,6 +90,8 @@ class IBKRMarketDataProvider(MarketDataProvider):
         self._fetched_at: Dict[str, datetime] = {}
         self._bars_updated_at: Dict[str, datetime] = {}
         self.failed: Dict[str, str] = {}
+        self._synthetic_spread_pct = synthetic_spread_pct
+        self.synthetic_quotes: set = set()
 
     # --- setup -------------------------------------------------------------------
     def subscribe(self, symbols: List[str]) -> None:
@@ -94,7 +104,7 @@ class IBKRMarketDataProvider(MarketDataProvider):
 
     def _request_bars(self, contract, keep_up_to_date: bool):
         return self.ib.reqHistoricalData(
-            contract, endDateTime="", durationStr="2 D", barSizeSetting="5 mins",
+            contract, endDateTime="", durationStr="1 W", barSizeSetting="5 mins",
             whatToShow="TRADES", useRTH=True, formatDate=2, keepUpToDate=keep_up_to_date)
 
     def _subscribe(self, symbol: str) -> None:
@@ -147,13 +157,23 @@ class IBKRMarketDataProvider(MarketDataProvider):
         t = self._tickers[symbol]
         bid, ask, last = _valid(t.bid), _valid(t.ask), _valid(t.last)
         quote_time = getattr(t, "time", None)
+        delayed = getattr(t, "marketDataType", None) in DELAYED_TYPES
+        self.synthetic_quotes.discard(symbol)
         if bid and ask and ask >= bid:
             stamp = quote_time or wall
             state.quote = Quote(bid=bid, ask=ask, last=last or (bid + ask) / 2, timestamp=stamp)
+        elif delayed and self._synthetic_spread_pct and raw and _valid(raw[-1].close):
+            px = float(raw[-1].close)       # newest price seen, forming bar included
+            half = px * self._synthetic_spread_pct(symbol) / 100.0 / 2.0
+            state.quote = Quote(bid=px - half, ask=px + half, last=px, timestamp=wall)
+            self.synthetic_quotes.add(symbol)
         else:
             state.quote = None
-        heard = [d for d in (quote_time, self._bars_updated_at.get(symbol)) if d is not None]
-        state.received_at = max(heard) if heard else None
+        if delayed and self.ib.isConnected():
+            state.received_at = wall
+        else:
+            heard = [d for d in (quote_time, self._bars_updated_at.get(symbol)) if d is not None]
+            state.received_at = max(heard) if heard else None
 
     def wait(self, seconds: float) -> None:
         self.ib.sleep(seconds)
@@ -167,6 +187,20 @@ class IBKRMarketDataProvider(MarketDataProvider):
         if not kinds:
             return None
         return any(k in DELAYED_TYPES for k in kinds)
+
+    def health(self, symbols: List[str], now: datetime, staleness_limit_seconds: float) -> Dict[str, int]:
+        """How many symbols the bot can actually evaluate right now, and why not."""
+        today = now.astimezone(ET).date()
+        out = {"symbols": len(symbols), "streaming": 0, "bars_today": 0, "quotes": 0,
+               "quotes_from_bars": 0, "fresh": 0}
+        for s in symbols:
+            st = self._inner.get_state(s)
+            out["streaming"] += 1 if self._streaming.get(s) else 0
+            out["bars_today"] += 1 if any(b.timestamp.astimezone(ET).date() == today for b in st.bars) else 0
+            if st.quote is not None:
+                out["quotes_from_bars" if s in self.synthetic_quotes else "quotes"] += 1
+            out["fresh"] += 0 if self.is_stale(s, staleness_limit_seconds, now) else 1
+        return out
 
     def session_volumes(self, symbol: str) -> Dict[str, float]:
         """Total volume per session date (YYYY-MM-DD) in IBKR's bars. Used to check that

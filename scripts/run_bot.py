@@ -97,25 +97,47 @@ def session_bar_index(now, market_open_hhmm):
     return int((now - open_dt).total_seconds() // (BAR_MINUTES * 60))
 
 
-def volume_check(provider, symbols):
-    """Median ratio of IBKR's session volume to the cached history's, over sessions
-    both have. The RVOL baselines come from the cache, so IBKR volume on a
-    different scale (odd lots or venues counted differently) would bias every RVOL
-    reading."""
-    ratios = []
+def volume_scales(provider, symbols, today):
+    """Per symbol: IBKR's volume divided by the cached history's, summed over completed
+    sessions both sources have (today's partial session is left out).
+
+    The RVOL baselines come from the cache (Twelve Data), while today's volume comes
+    from IBKR. On 2026-09-24, IBKR's volume was 0.78x the cache's (median over 38
+    symbols). Unscaled, every RVOL reading would be 22% low: min_relative_volume
+    1.10 would behave like ~1.41, and most trades would be rejected. Scaling the baseline by
+    this ratio puts both sides of RVOL on IBKR's scale, as the backtest had both on
+    Twelve Data's."""
+    scales = {}
     for sym in symbols:
         cached = cached_sessions(sym)
+        ib_total = cache_total = 0.0
         for day, total in provider.session_volumes(sym).items():
-            cached_total = sum(b.volume for b in cached.get(day, []))
-            if total > 0 and cached_total > 0:
-                ratios.append(total / cached_total)
-    if not ratios:
-        return None
-    ratios.sort()
-    return ratios[len(ratios) // 2], len(ratios)
+            if day == today:
+                continue
+            c = sum(b.volume for b in cached.get(day, []))
+            if total > 0 and c > 0:
+                ib_total += total
+                cache_total += c
+        if cache_total > 0:
+            scales[sym] = ib_total / cache_total
+    return scales
 
 
-def ibkr_data_report(provider, symbols):
+def apply_volume_scales(baselines, scales):
+    """Scale each symbol's baseline. A symbol with no overlap takes the median of the
+    rest; with no overlap anywhere, nothing is scaled. Returns (median, how many
+    symbols were measured)."""
+    if not scales:
+        return None, 0
+    ordered = sorted(scales.values())
+    median = ordered[len(ordered) // 2]
+    for sym, slots in baselines.items():
+        k = scales.get(sym, median)
+        baselines[sym] = {i: v * k for i, v in slots.items()}
+    return median, len(scales)
+
+
+def ibkr_data_report(provider, scale_summary=None):
     """Startup lines on what IBKR is actually sending. Empty for other providers."""
     if not hasattr(provider, "data_delayed"):
         return []
@@ -131,13 +153,26 @@ def ibkr_data_report(provider, symbols):
         lines.append("  Prices:            LIVE")
     if provider.failed:
         lines.append(f"  NO DATA:           {', '.join(f'{s} ({e})' for s, e in sorted(provider.failed.items()))}")
-    check = volume_check(provider, symbols)
-    if check:
-        ratio, n = check
-        flag = "" if 0.8 <= ratio <= 1.25 else "  <-- RVOL will be biased; tell Claude"
-        lines.append(f"  Volume check:      IBKR / cached history = {ratio:.2f} "
-                     f"(median of {n} symbol-sessions){flag}")
+    if scale_summary is not None:
+        median, n = scale_summary
+        if n:
+            lines.append(f"  Volume scale:      IBKR = {median:.2f} x cached history (median of {n} "
+                         f"symbols); RVOL baselines scaled to match")
+        else:
+            lines.append("  Volume scale:      no session in both IBKR and the cache (cache out of "
+                         "date?) -- RVOL baselines NOT scaled, may be biased")
     return lines
+
+
+def health_line(provider, symbols, now, staleness_limit):
+    """One line: can the bot actually evaluate its symbols right now, and if not, why not."""
+    if not hasattr(provider, "health"):
+        return None
+    h = provider.health(symbols, now, staleness_limit)
+    n = h["symbols"]
+    from_bars = f" + {h['quotes_from_bars']} from bars" if h["quotes_from_bars"] else ""
+    return (f"data: bars today {h['bars_today']}/{n} (streaming {h['streaming']}), "
+            f"quotes {h['quotes']}/{n}{from_bars}, fresh {h['fresh']}/{n}")
 
 
 def main() -> int:
@@ -190,18 +225,27 @@ def main() -> int:
     missing = sorted(s for s, b in baselines.items() if not b)
     market_open = config.schedule.get("market_open", "09:30")
 
+    scale_summary = None
     if hasattr(provider, "subscribe"):
         print(f"Subscribing to {len(all_symbols)} symbols (about a second each) ...")
         provider.subscribe(all_symbols)
         wait(3)
+        today = datetime.now(tz).strftime("%Y-%m-%d")
+        scale_summary = apply_volume_scales(baselines, volume_scales(provider, all_symbols, today))
+        for symbol in all_symbols:
+            provider.poll(symbol, datetime.now(tz))
+    staleness_limit = config.risk["safety"]["data_staleness_limit_seconds"]
 
     print("=" * 70)
     print("STARTING LIVE BOT LOOP")
     print("=" * 70)
     print(f"  Broker:            {type(bot.broker).__name__}")
     print(f"  Market data:       {type(provider).__name__}")
-    for line in ibkr_data_report(provider, all_symbols):
+    for line in ibkr_data_report(provider, scale_summary):
         print(line)
+    health = health_line(provider, all_symbols, datetime.now(tz), staleness_limit)
+    if health:
+        print(f"  Data now:          {health}")
     print(f"  Universe ({len(universe)}):      {', '.join(universe)}")
     print(f"  Benchmarks ({len(benchmarks)}):    {', '.join(benchmarks)}")
     print(f"  RVOL baselines:    {len(all_symbols) - len(missing)}/{len(all_symbols)} symbols "
@@ -274,6 +318,9 @@ def main() -> int:
             if cycles % 10 == 0:
                 open_positions = len(bot.position_manager.open_positions())
                 print(f"[{now:%H:%M:%S}] heartbeat -- cycle {cycles}, open positions: {open_positions}")
+                health = health_line(provider, all_symbols, now, staleness_limit)
+                if health:
+                    print(f"[{now:%H:%M:%S}] {health}")
 
             wait(poll_interval)
     except KeyboardInterrupt:

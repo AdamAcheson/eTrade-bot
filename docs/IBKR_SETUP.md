@@ -46,7 +46,7 @@ the pop-up left: it sold the extra AG share (market, $18.59) and a fresh query
 afterwards showed 0 open orders, 0 positions. The paper account was clean at the
 end of the day.
 
-## Price feed (built 2026-09-24, not yet run against TWS)
+## Price feed (built 2026-09-24; first run against TWS the same afternoon)
 
 `src/data/ibkr_market_data.py` (`IBKRMarketDataProvider`), used when
 `market_data_source: ibkr`. Run the whole bot on the paper account with:
@@ -57,8 +57,8 @@ That sets `mode: ibkr_paper` and `market_data_source: ibkr` for the one run, wit
 the same paper-port checks as loading them from broker.yaml. Orders and prices share
 one TWS connection.
 
-* Bars: 5-minute TRADES from `reqHistoricalData(keepUpToDate=True)`, two sessions
-  deep, so the prior close is there for the gap. The last bar in the list is still
+* Bars: 5-minute TRADES from `reqHistoricalData(keepUpToDate=True)`, one week
+  deep, which covers the prior close for the gap and sessions to compare volume with. The last bar in the list is still
   forming and is never exposed. If IBKR refuses the stream, the provider asks
   again once per bar.
 * Quotes: `reqMktData` after `reqMarketDataType(3)`, which returns live data where
@@ -67,12 +67,27 @@ one TWS connection.
 * The startup summary says **LIVE** or **DELAYED**. Delayed prices only test the
   plumbing: entries and exits are decided on 15-minute-old prices, so an exit
   limited at a stale bid can miss and print EXIT INCOMPLETE.
-* Volume check at startup: IBKR's session volume ÷ the cached history's, for
-  sessions both have. RVOL baselines still come from the local cache
-  (`data_cache/historical`), so if IBKR counts volume differently every RVOL
-  reading is biased. The summary flags a median ratio outside 0.8-1.25.
+* Volume scale: on 2026-09-24 IBKR's session volume was **0.78x** the cached
+  Twelve Data history's (median over 38 symbols, 2026-09-23). RVOL baselines come from the
+  cache, so unscaled every RVOL would read 22% low: `min_relative_volume` 1.10 would act like
+  ~1.41 and reject most setups. At startup, run_bot now measures each symbol's
+  IBKR/cache ratio over completed sessions both sources have, then scales that
+  symbol's baseline by it. Symbols without an overlap take the median. The
+  summary prints the median, or says nothing could be scaled when the cache is
+  out of date.
 * The loop waits with `ib.sleep`, not `time.sleep`: ib_async only processes IBKR's
   messages while its event loop runs.
+
+**First run, 2026-09-24 ~15:20 ET, delayed data:** it started, subscribed all 38
+symbols and reported DELAYED correctly, then logged **no decisions at all**. Every
+symbol was skipped before the strategy ran, because the bot sees data as missing or
+stale. Either no delayed bid/ask arrived (the 12:45 check saw none either), or IBKR
+refused the bar stream and the once-per-bar fallback failed the 30-second
+staleness rule. Two responses, for DELAYED data only, since it is a plumbing test on paper:
+the quote falls back to the newest bar's close with the backtest's synthetic
+spread, and data counts as fresh while connected. Live data keeps the strict
+rules. Each heartbeat now prints a data line (bars today / streaming / quotes /
+from bars / fresh) so the next run shows which cause it was.
 
 Not yet handled: reconnecting if TWS restarts mid-session (TWS restarts itself
 daily, by default near midnight, so start the bot after that). RVOL baselines come
