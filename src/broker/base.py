@@ -37,6 +37,7 @@ class Order:
     avg_fill_price: Optional[float] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    commission: Optional[float] = None   # as reported by the broker; None if unknown
 
 
 @dataclass
@@ -54,6 +55,12 @@ class BrokerPosition:
 
 
 class BrokerInterface(ABC):
+    # True if submit_limit_order returns only once the order is finished (filled,
+    # cancelled or rejected), so filled_quantity is final. Only then is it safe to
+    # re-send an unfilled remainder: re-sending while the first order may still fill
+    # could sell the same shares twice and leave the account short.
+    reports_final_fills: bool = False
+
     @abstractmethod
     def get_account(self) -> Account:
         ...

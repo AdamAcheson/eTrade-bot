@@ -91,7 +91,7 @@ def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> AppConfig:
     broker = _load_yaml(os.path.join(config_dir, "broker.yaml"))
     schedule = _load_yaml(os.path.join(config_dir, "schedule.yaml"))
 
-    ALLOWED_BROKER_MODES = {"paper", "sandbox"}
+    ALLOWED_BROKER_MODES = {"paper", "sandbox", "ibkr_paper"}
     if broker.get("mode") not in ALLOWED_BROKER_MODES:
         raise ConfigError(
             f"broker.yaml mode must be one of {sorted(ALLOWED_BROKER_MODES)}. "
@@ -105,6 +105,15 @@ def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> AppConfig:
             "the one in broker/etrade.py -- both must agree before any real network "
             "call to E*TRADE is made."
         )
+
+    if broker["mode"] == "ibkr_paper":
+        # Independent of the same check inside broker/ibkr.py, which also verifies
+        # the account TWS is logged into is a paper account.
+        from broker.ibkr import IBKRSafetyError, check_paper_settings
+        try:
+            check_paper_settings(broker.get("ibkr") or {})
+        except IBKRSafetyError as e:
+            raise ConfigError(f"broker.yaml mode is 'ibkr_paper' but {e}") from e
 
     ALLOWED_MARKET_DATA_SOURCES = {"memory", "etrade"}
     market_data_source = broker.get("market_data_source", "memory")

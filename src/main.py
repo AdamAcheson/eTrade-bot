@@ -185,6 +185,7 @@ class TradingBot:
         # is refreshed before the first entry or exit can act on it.
         self.reconciliation = Reconciliation()
         self._reported_discrepancies: set = set()
+        self._last_exit_fill_price: Optional[float] = None
 
     def _snapshot_for(self, ticker: str, now: datetime) -> Optional[IndicatorSnapshot]:
         state = self.data_provider.get_state(ticker)
@@ -365,30 +366,38 @@ class TradingBot:
 
         # PaperBrokerAdapter only fills a resting order once it sees a quote
         # (process_quote) -- feed it the current one immediately, since the order
-        # was just placed at (or inside) the current market. A real broker
-        # (ETradeBrokerAdapter) fills asynchronously on its own; reconciling a
-        # pending order against a later fill confirmation isn't implemented yet,
-        # so on that path the ticker simply stays ORDER_PENDING until a future
-        # enhancement adds status polling.
+        # was just placed at (or inside) the current market. IBKRPaperBrokerAdapter
+        # has already waited for its fill inside submit_limit_order.
         if isinstance(self.broker, PaperBrokerAdapter):
             self.broker.process_quote(ticker, stock_snapshot.bid, stock_snapshot.ask)
 
         order = self.broker.get_order_status(result.order.order_id)
-        if order.status == OrderStatus.FILLED:
-            self.risk_manager.record_purchase(
-                (order.avg_fill_price or order.limit_price) * order.filled_quantity)
-            self.position_manager.open_position(
-                ticker=ticker,
-                benchmark=ticker_cfg.benchmark,
-                entry_time=now,
-                entry_price=order.avg_fill_price or order.limit_price,
-                shares=order.filled_quantity,
-                stop_price=signal.stop,
-                target_price=signal.target,
-                setup_type=signal.setup_type,
-                setup_score=signal.setup_score,
-                score_components=signal.score_components,
-            )
+        # A real broker (IBKRPaperBrokerAdapter) waits a few seconds and cancels any
+        # unfilled remainder, so the fill can be partial or nothing at all. Open the
+        # position with what actually filled.
+        if order.filled_quantity <= 0:
+            if order.status in (OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED):
+                self.broker.cancel_order(order.order_id)
+            # Without this the ticker stayed "order pending" for the rest of the run.
+            self.position_manager.cancel_pending_order(ticker)
+            return
+        if order.status != OrderStatus.FILLED:
+            print(f"[{now:%H:%M:%S}] partial entry fill {ticker}: {order.filled_quantity} of "
+                  f"{order.quantity} shares ({order.status.value})")
+        self.risk_manager.record_purchase(
+            (order.avg_fill_price or order.limit_price) * order.filled_quantity)
+        self.position_manager.open_position(
+            ticker=ticker,
+            benchmark=ticker_cfg.benchmark,
+            entry_time=now,
+            entry_price=order.avg_fill_price or order.limit_price,
+            shares=order.filled_quantity,
+            stop_price=signal.stop,
+            target_price=signal.target,
+            setup_type=signal.setup_type,
+            setup_score=signal.setup_score,
+            score_components=signal.score_components,
+        )
 
     def manage_open_positions(self, now: datetime) -> None:
         strat = self.config.strategy["trade_management"]
@@ -400,7 +409,7 @@ class TradingBot:
             if max_hold_days is not None and (now - position.entry_time) >= timedelta(days=max_hold_days):
                 self._submit_exit_and_simulate(position.ticker, position.shares, snapshot.bid)
                 trade = self.position_manager.close_position(
-                    position.ticker, now, snapshot.last_price, ExitReason.MAX_HOLD_EXCEEDED
+                    position.ticker, now, self._exit_price(snapshot.last_price), ExitReason.MAX_HOLD_EXCEEDED
                 )
                 self.trade_journal.record(trade)
                 self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker)
@@ -432,7 +441,7 @@ class TradingBot:
             if action.should_exit:
                 self._submit_exit_and_simulate(position.ticker, position.shares, snapshot.bid)
                 trade = self.position_manager.close_position(
-                    position.ticker, now, action.exit_price, action.exit_reason
+                    position.ticker, now, self._exit_price(action.exit_price), action.exit_reason
                 )
                 self.trade_journal.record(trade)
                 self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, position.ticker)
@@ -474,7 +483,8 @@ class TradingBot:
                 # drift this reconciliation exists to prevent.
                 sold = self._submit_exit_and_simulate(position.ticker, sell_shares, stock_snapshot.bid)
                 if sold > 0:
-                    position.apply_partial_exit(now, stock_snapshot.last_price, sold, "overnight_size_reduction")
+                    position.apply_partial_exit(now, self._exit_price(stock_snapshot.last_price), sold,
+                                                "overnight_size_reduction")
             position.overnight = True
             position.overnight_multiplier_applied = decision.size_multiplier
 
@@ -484,6 +494,7 @@ class TradingBot:
         exit_price = snapshot.last_price if snapshot else position.current_stop
         if snapshot is not None:
             self._submit_exit_and_simulate(ticker, position.shares, snapshot.bid)
+            exit_price = self._exit_price(exit_price)
         trade = self.position_manager.close_position(ticker, now, exit_price, reason)
         self.trade_journal.record(trade)
         self.risk_manager.record_trade_result(trade.net_profit or 0.0, now, ticker)
@@ -498,16 +509,52 @@ class TradingBot:
         # bot's -- a fill that never happened, a manual sale -- selling the bot's
         # number would not flatten the position, it would open a short, and a short's
         # loss is unbounded. A smaller sell (or none) is always the safer error.
+        self._last_exit_fill_price = None
         shares = sellable_shares(ticker, shares, self.broker.get_positions())
         if shares <= 0:
             self._log_reconciliation_block(ticker)
             return 0
-        self.order_manager.submit_exit_order(ticker, shares, limit_price)
         if isinstance(self.broker, PaperBrokerAdapter):
+            self.order_manager.submit_exit_order(ticker, shares, limit_price)
             state = self.data_provider.get_state(ticker)
             if state.quote is not None:
                 self.broker.process_quote(ticker, state.quote.bid, state.quote.ask)
-        return shares
+            return shares
+
+        if not self.broker.reports_final_fills:
+            # Fills arrive later (E*TRADE): one order, and no re-send that could
+            # double-sell.
+            self.order_manager.submit_exit_order(ticker, shares, limit_price)
+            return shares
+
+        # The broker returned what actually filled. Re-send any remainder a little
+        # further below the bid, per broker.yaml exit_retry_steps_pct.
+        sold, proceeds = 0, 0.0
+        for step_pct in self.config.broker.get("exit_retry_steps_pct", [0.0]):
+            remaining = shares - sold
+            if remaining <= 0:
+                break
+            result = self.order_manager.submit_exit_order(
+                ticker, remaining, limit_price * (1 - step_pct / 100.0))
+            order = result.order
+            if order is not None and order.filled_quantity > 0:
+                sold += order.filled_quantity
+                proceeds += order.filled_quantity * (order.avg_fill_price or order.limit_price)
+        if sold < shares:
+            print(f"EXIT INCOMPLETE: {ticker} sold {sold} of {shares} shares. The rest are "
+                  f"still held at the broker -- close them in TWS. The bot will not trade "
+                  f"{ticker} again until the account matches.")
+        if sold:
+            self._last_exit_fill_price = proceeds / sold
+        return sold
+
+    def _exit_price(self, modelled: float) -> float:
+        """The price to book an exit at. The simulator keeps the modelled price, so
+        backtests are unchanged; a real broker's exit is booked at its actual average
+        fill."""
+        if isinstance(self.broker, PaperBrokerAdapter):
+            return modelled
+        return self._last_exit_fill_price or modelled
 
     def refresh_reconciliation(self) -> Reconciliation:
         """Ask the broker what it actually holds and compare with the bot's own view.
@@ -610,6 +657,10 @@ def build_default_bot(config: Optional[AppConfig] = None) -> TradingBot:
     if mode == "sandbox":
         broker: BrokerInterface = ETradeBrokerAdapter(config.broker)
         quote_source = broker
+    elif mode == "ibkr_paper":
+        from broker.ibkr import IBKRPaperBrokerAdapter
+        broker = IBKRPaperBrokerAdapter(config.broker)
+        quote_source = None
     else:
         broker = PaperBrokerAdapter(
             starting_equity=config.broker["paper"]["starting_equity"],

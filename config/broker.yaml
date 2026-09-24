@@ -4,7 +4,8 @@
 # codebase, and switching mode alone can never reach it.
 
 mode: paper   # paper (default, fully simulated) | sandbox (real E*TRADE sandbox API,
-              # fake sandbox money) | live -- "live" always raises at startup.
+              # fake sandbox money) | ibkr_paper (Interactive Brokers PAPER account
+              # through TWS on this computer) | live -- "live" always raises at startup.
 
 # Independent of `mode` above: where does market data (quotes/bars) come from?
 #   memory (default) -- InMemoryMarketDataProvider; nothing arrives unless a caller
@@ -38,3 +39,25 @@ etrade:
   oauth_token_env: ETRADE_SANDBOX_OAUTH_TOKEN
   oauth_token_secret_env: ETRADE_SANDBOX_OAUTH_TOKEN_SECRET
   account_id_env: ETRADE_SANDBOX_ACCOUNT_ID
+
+ibkr:
+  # broker/ibkr.py (IBKRPaperBrokerAdapter), used when mode: ibkr_paper. PAPER ONLY:
+  # the port must be a paper port and the host this computer (both checked at
+  # startup), and the adapter refuses to run unless every account TWS reports is a
+  # paper account (id starting "DU"). In TWS: Global Configuration > API > Settings,
+  # tick "Enable ActiveX and Socket Clients", UNtick "Read-Only API", keep
+  # "Allow connections from localhost only" ticked.
+  host: 127.0.0.1
+  port: 7497              # 7497 TWS paper | 4002 IB Gateway paper
+  client_id: 21           # any number not used by another program connected to TWS
+  account_id: ""          # optional; if set, must match the paper account (DU...)
+  # The bot's orders are marketable limits meant to fill now. Wait this long for a
+  # fill, then cancel whatever is left, so nothing rests unwatched at the broker.
+  fill_timeout_seconds: 10
+  cancel_timeout_seconds: 5
+
+# Real brokers only (the simulator always fills). An exit sell that has not fully
+# filled is re-sent this many percent below the bid, in turn, until it fills.
+# 0.0 = at the bid. Anything still unsold after the last step is reported loudly and
+# left for the user to close; the bot will not open a new trade in that stock.
+exit_retry_steps_pct: [0.0, 0.25, 0.75]

@@ -3,6 +3,34 @@
 Findings from `scripts/ibkr_check.py`, run by the account holder on their own Mac
 against TWS (paper). Newest first.
 
+## Order connection (built 2026-09-24, not yet run against TWS)
+
+`src/broker/ibkr.py` (`IBKRPaperBrokerAdapter`), selected by `broker.yaml: mode:
+ibkr_paper`. **Paper accounts only.** config_loader and the adapter each require a
+paper port (7497/4002) on this computer, and the adapter disconnects unless every
+account TWS reports starts with "DU". The shipped config stays `mode: paper` (the
+simulator).
+
+* `submit_limit_order` waits up to `fill_timeout_seconds` (10 s) for the fill, then
+  cancels any remainder, so nothing rests at IBKR unwatched and the bot sees the
+  final filled quantity, which can be 0, partial or full.
+* Entries open a position with the shares that actually filled; an entry that
+  fills nothing frees the ticker again.
+* An exit that does not fully fill is re-sent at 0.25% and then 0.75% below the bid
+  (`exit_retry_steps_pct`). Anything still unsold prints `EXIT INCOMPLETE` and
+  must be closed in TWS by hand. Exits are booked at the real average fill.
+* Reported buying power is cash, never the paper account's 4x margin figure.
+
+Test it with `python3 scripts/ibkr_paper_order_test.py` during market hours, with
+TWS's "Read-Only API" box unticked. It places three 1-share orders: one that cannot
+fill and must cancel, a buy, then a sell. Afterwards it checks the account holds
+what it held before.
+
+**Not yet built:** a market-data feed from IBKR for the live loop
+(`scripts/run_bot.py` still needs `market_data_source: etrade`). That waits on
+the data subscription below. The bot's P&L also still uses the modelled costs, not
+IBKR's reported commissions (captured on each order as `Order.commission`).
+
 ## 2026-09-24, 12:45 ET (market open), TWS paper, port 7497
 
 | check | result |
