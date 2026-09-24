@@ -2295,3 +2295,40 @@ size one position small, e.g. $583). One holdout day appeared $2.81 over when ch
 against AFTER-COST equity: the bot budgets from the simulated broker's balance, which
 does not deduct modelled trading costs ($47.65 accumulated by then). The real
 account's balance already reflects actual costs, so this does not carry over.
+
+## Skip days when silver gaps down more than 1%: tested and REJECTED (2026-09-24)
+
+**Proposal (the account holder's, after two losing simulated days):** take no new
+entries when SLV opens more than 1% below the prior session's close. It is known at
+09:30, before the first possible entry at 09:40, so the rule has no lookahead. The two days that
+prompted it gapped -2.86% (09-23) and -1.50% (09-24). Both backtest periods are
+out of sample for it. Pre-registered before any result was seen: adopt only if
+P&L on skipped days is negative in both periods, a one-sided day-level
+permutation test gives p < 0.05 in one and < 0.20 in the other, and the sign holds at
+-0.75% and -1.5%.
+
+Measured on the shipped $5,000 settled-cash journals (`settled_h`, `settled_t`).
+The cash rules reset daily, so removing a day's trades does not change other days.
+Figures are gross of commission, with the Pro Tiered approximation in brackets.
+
+| SLV gap below | holdout days | P&L on those days | per day vs other days | p | tuning days | P&L on those days | per day vs other days | p |
+|---|---|---|---|---|---|---|---|---|
+| -0.75% | 112 (19.7%) | **+$667** (+$447) | +5.96 vs +4.62 | 0.67 | 68 (34.9%) | **+$494** (+$367) | +7.26 vs +8.69 | 0.42 |
+| **-1.00%** | 84 (14.8%) | **+$445** (+$276) | +5.30 vs +4.82 | 0.57 | 62 (31.8%) | **+$514** (+$401) | +8.29 vs +8.15 | 0.52 |
+| -1.50% | 49 (8.6%) | **+$451** (+$345) | +9.20 vs +4.48 | 0.86 | 50 (25.6%) | **+$420** (+$335) | +8.39 vs +8.13 | 0.53 |
+| -2.00% | 26 (4.6%) | **+$197** (+$152) | +7.59 vs +4.76 | 0.70 | 39 (20.0%) | **+$159** (+$88) | +4.07 vs +9.23 | 0.25 |
+
+**Every threshold, in both periods, fails the first test: gap-down days made money.**
+At -1% the rule would have given up $445 of $2,776 on the holdout (16%) and $514 of
+$1,598 on tuning (32%), with no drawdown benefit to trade for it. Rejected.
+
+**Why it does not work:** the bot already refuses to buy while the benchmark is
+weak (benchmark confirmation is the dominant rejection on those days). On a
+gap-down day it only enters once silver miners have reclaimed VWAP intraday, the
+gap-and-recover pattern, and those trades are no worse than any others. 2026-09-24
+was that pattern: SLV gapped -1.5%, recovered, and the bot's two 12:20 entries
+were stopped out. That is an ordinary losing day, not a signal. The
+filter that matters here is already in place and works *during* the day, which a
+rule fixed at the open cannot.
+
+**Running tally: 29 tested, 2 adopted.**
