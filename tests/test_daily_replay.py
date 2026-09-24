@@ -193,3 +193,20 @@ def test_commit_does_not_push_when_there_was_nothing_to_commit(monkeypatch):
     monkeypatch.setattr(daily_replay, "run", lambda cmd, **kw: calls.append(cmd) or _R())
     daily_replay.commit("2026-09-18", "0 trade(s)")
     assert not any(c[:2] == ["git", "push"] for c in calls)
+
+
+def test_tally_never_adds_dollars_across_the_equity_basis_change(tmp_path, monkeypatch):
+    """Rows before 2026-09-23 are on $100,000; from then on $5,000. One sum across
+    both would be 12.5x wrong for one side, so each basis gets its own total."""
+    import daily_replay
+    p = _log(tmp_path, [
+        "| 2026-09-22 | +2.41% | 100 | 5 | +$810.83 | 0.69 | x (1) | n |",
+        "| 2026-09-23 | -1.42% | 100 | 2 | -$38.49 | 0.83 | x (1) | n |",
+    ])
+    monkeypatch.setattr(daily_replay, "LOG", str(p))
+    daily_replay.refresh_tally()
+    out = p.read_text()
+    assert "$5,000 cash basis (from 2026-09-23):** 1 sessions logged" in out
+    assert "**-$38.49** across 2 trades" in out
+    assert "**+$810.83** across 5 trades" in out
+    assert "772.34" not in out   # the meaningless combined sum

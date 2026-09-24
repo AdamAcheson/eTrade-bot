@@ -91,21 +91,12 @@ def row_for(day: str, s, note: str) -> str:
 
 TALLY_HEADING = "### Running tally"
 
+# First session logged on the shipped $5,000 cash config; earlier rows are on the
+# old $100,000 / $25,000-per-trade default. See the log's header.
+BASIS_CHANGE = "2026-09-23"
 
-def refresh_tally() -> None:
-    """Regenerate the running tally from the table itself.
 
-    It used to be hand-written, and by 2026-09-18 it claimed "+$110.43 across 3
-    trades" while the table summed to -$181.81 across 8 -- stale in the flattering
-    direction, which is the worst way for a P&L summary to be wrong. Deriving it
-    from the rows means it cannot drift again.
-
-    The tally must stay the LAST section of the file: everything from its heading
-    to EOF is replaced.
-    """
-    with open(LOG) as f:
-        text = f.read()
-    rows = [l for l in text.split("\n") if re.match(r"^\| 20\d\d-\d\d-\d\d \|", l)]
+def _summarise(rows) -> str:
     sessions = len(rows)
     trades = net = 0
     active = 0
@@ -123,14 +114,37 @@ def refresh_tally() -> None:
         trades += n
         active += 1 if n else 0
         net += pnl
-    body = (
-        f"{TALLY_HEADING}\n\n"
-        f"{sessions} sessions logged, {active} with trades, {sessions - active} with zero. "
-        f"Cumulative P&L **{'+' if net >= 0 else '-'}${abs(net):,.2f}** across {trades} "
-        f"trades. Far too small a sample to compare against the backtest's ~30% "
-        f"zero-trade rate and 2.6 trades per active session; the point remains "
-        f"accumulation.\n"
-    )
+    return (f"{sessions} sessions logged, {active} with trades, {sessions - active} with zero. "
+            f"Cumulative P&L **{'+' if net >= 0 else '-'}${abs(net):,.2f}** across {trades} trades.")
+
+
+def refresh_tally() -> None:
+    """Regenerate the running tally from the table itself.
+
+    It used to be hand-written, and by 2026-09-18 it claimed "+$110.43 across 3
+    trades" while the table summed to -$181.81 across 8 -- stale in the flattering
+    direction, which is the worst way for a P&L summary to be wrong. Deriving it
+    from the rows means it cannot drift again.
+
+    The tally must stay the LAST section of the file: everything from its heading
+    to EOF is replaced.
+    """
+    with open(LOG) as f:
+        text = f.read()
+    rows = [l for l in text.split("\n") if re.match(r"^\| 20\d\d-\d\d-\d\d \|", l)]
+    # Never add dollars across the equity-basis change: a $100,000-basis row is
+    # 12.5x a $5,000-basis one, so a single sum would be meaningless.
+    current = [l for l in rows if l[2:12] >= BASIS_CHANGE]
+    old = [l for l in rows if l[2:12] < BASIS_CHANGE]
+    parts = [TALLY_HEADING]
+    if current:
+        parts.append(f"**$5,000 cash basis (from {BASIS_CHANGE}):** " + _summarise(current))
+    if old:
+        parts.append(f"**Old $100,000 basis (before {BASIS_CHANGE}; divide by 12.5):** "
+                     + _summarise(old))
+    parts.append("Far too small a sample to compare against the backtest's ~30% zero-trade "
+                 "rate and 2.6 trades per active session; the point remains accumulation.\n")
+    body = "\n\n".join(parts)
     head = text.split(TALLY_HEADING)[0] if TALLY_HEADING in text else text.rstrip() + "\n\n"
     with open(LOG, "w") as f:
         f.write(head + body)
