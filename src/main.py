@@ -668,11 +668,25 @@ def build_default_bot(config: Optional[AppConfig] = None) -> TradingBot:
         )
         quote_source = None
 
+    bar_seconds = _parse_timeframe_seconds(config.strategy["candle_timeframe"])
     if market_data_source == "etrade":
         if quote_source is None:
             quote_source = ETradeBrokerAdapter(config.broker)
-        bar_seconds = _parse_timeframe_seconds(config.strategy["candle_timeframe"])
         data_provider: MarketDataProvider = ETradeMarketDataProvider(quote_source, bar_interval_seconds=bar_seconds)
+    elif market_data_source == "ibkr":
+        from data.ibkr_market_data import IBKRMarketDataProvider, contract_resolver
+        if mode == "ibkr_paper":
+            # One TWS connection for orders and prices.
+            ib, contract_for = broker.ib, broker._contract
+        else:
+            # Simulated fills on IBKR prices: a separate read-only connection.
+            from ib_async import IB
+            cfg = config.broker["ibkr"]
+            ib = IB()
+            ib.connect(cfg.get("host", "127.0.0.1"), int(cfg["port"]),
+                       clientId=int(cfg.get("client_id", 21)) + 1, timeout=10, readonly=True)
+            contract_for = contract_resolver(ib)
+        data_provider = IBKRMarketDataProvider(ib, contract_for, bar_interval_seconds=bar_seconds)
     else:
         data_provider = InMemoryMarketDataProvider()
 

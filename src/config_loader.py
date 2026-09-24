@@ -84,6 +84,30 @@ class AppConfig:
         return os.path.exists(path)
 
 
+def check_ibkr_settings(broker: Dict[str, Any]) -> None:
+    """Paper port on this computer, whenever anything will connect to TWS: orders
+    (mode: ibkr_paper) or prices (market_data_source: ibkr). Independent of the same
+    check inside broker/ibkr.py, which also verifies the account is a paper one."""
+    uses = [what for what, on in (("mode is 'ibkr_paper'", broker.get("mode") == "ibkr_paper"),
+                                  ("market_data_source is 'ibkr'",
+                                   broker.get("market_data_source") == "ibkr")) if on]
+    if not uses:
+        return
+    from broker.ibkr import IBKRSafetyError, check_paper_settings
+    try:
+        check_paper_settings(broker.get("ibkr") or {})
+    except IBKRSafetyError as e:
+        raise ConfigError(f"broker.yaml {' and '.join(uses)} but {e}") from e
+
+
+def use_ibkr_paper(config: "AppConfig") -> None:
+    """Switch a loaded config to IBKR paper orders + IBKR prices (scripts/run_bot.py
+    --ibkr-paper), re-running the same checks load_config applies."""
+    config.broker["mode"] = "ibkr_paper"
+    config.broker["market_data_source"] = "ibkr"
+    check_ibkr_settings(config.broker)
+
+
 def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> AppConfig:
     tickers_raw = _load_yaml(os.path.join(config_dir, "tickers.yaml"))
     strategy = _load_yaml(os.path.join(config_dir, "strategy.yaml"))
@@ -106,16 +130,7 @@ def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> AppConfig:
             "call to E*TRADE is made."
         )
 
-    if broker["mode"] == "ibkr_paper":
-        # Independent of the same check inside broker/ibkr.py, which also verifies
-        # the account TWS is logged into is a paper account.
-        from broker.ibkr import IBKRSafetyError, check_paper_settings
-        try:
-            check_paper_settings(broker.get("ibkr") or {})
-        except IBKRSafetyError as e:
-            raise ConfigError(f"broker.yaml mode is 'ibkr_paper' but {e}") from e
-
-    ALLOWED_MARKET_DATA_SOURCES = {"memory", "etrade"}
+    ALLOWED_MARKET_DATA_SOURCES = {"memory", "etrade", "ibkr"}
     market_data_source = broker.get("market_data_source", "memory")
     if market_data_source not in ALLOWED_MARKET_DATA_SOURCES:
         raise ConfigError(f"broker.yaml market_data_source must be one of {sorted(ALLOWED_MARKET_DATA_SOURCES)}.")
@@ -125,6 +140,7 @@ def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> AppConfig:
             "'sandbox' -- quote polling independently requires the same sandbox-only "
             "guarantee as order placement does, regardless of broker mode."
         )
+    check_ibkr_settings(broker)
 
     tickers: Dict[str, TickerConfig] = {}
     for symbol, raw in (tickers_raw.get("tickers") or {}).items():

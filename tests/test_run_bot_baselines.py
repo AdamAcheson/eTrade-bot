@@ -18,7 +18,19 @@ from run_bot import session_bar_index, volume_baselines_from_cache  # noqa: E402
 
 from models.bar import Bar  # noqa: E402
 
+import pytest  # noqa: E402
+
 ET = ZoneInfo("America/New_York")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_session_cache():
+    """run_bot loads each symbol's history once per run; tests swap get_bars, so
+    start each one with nothing loaded."""
+    import run_bot
+    run_bot._SESSIONS.clear()
+    yield
+    run_bot._SESSIONS.clear()
 
 
 def test_session_slot_counts_five_minute_bars_from_the_open():

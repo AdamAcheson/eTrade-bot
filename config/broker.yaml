@@ -10,6 +10,11 @@ mode: paper   # paper (default, fully simulated) | sandbox (real E*TRADE sandbox
 # Independent of `mode` above: where does market data (quotes/bars) come from?
 #   memory (default) -- InMemoryMarketDataProvider; nothing arrives unless a caller
 #                        (tests, a backtest driver) explicitly pushes bars/quotes.
+#   ibkr              -- IBKRMarketDataProvider streams 5-minute bars and quotes from
+#                         TWS (data/ibkr_market_data.py). Live where the account has a
+#                         data subscription, 15-minute DELAYED otherwise. Same paper-port
+#                         check as mode: ibkr_paper. `scripts/run_bot.py --ibkr-paper`
+#                         sets this and mode: ibkr_paper for one run.
 #   etrade            -- ETradeMarketDataProvider polls E*TRADE's real quote endpoint
 #                         and builds bars from it (see data/etrade_market_data.py).
 #                         Requires etrade.environment: sandbox below, same as
@@ -18,7 +23,7 @@ mode: paper   # paper (default, fully simulated) | sandbox (real E*TRADE sandbox
 # strategy evaluate real (sandbox) quotes while still using the local simulated
 # broker for fills/P&L bookkeeping, since E*TRADE's sandbox itself does not
 # realistically track order/position state (see docs/ARCHITECTURE.md section 11).
-market_data_source: memory   # memory | etrade
+market_data_source: memory   # memory | ibkr | etrade
 
 paper:
   starting_equity: 5000   # matches the live cash account and the IBKR paper account

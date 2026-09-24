@@ -3,10 +3,18 @@
 and their benchmarks, builds bars, and calls TradingBot.run_cycle() continuously.
 Prints new signals and trades as they happen. Press Ctrl+C to stop safely.
 
-Requires config/broker.yaml: market_data_source: etrade (quotes come from E*TRADE's
-sandbox regardless of which broker mode is active -- see that file's comments).
-With mode: paper (the default), orders/fills/P&L stay in the local simulator even
-though quotes are real; with mode: sandbox, orders also go to E*TRADE for real.
+Interactive Brokers PAPER account (orders and prices through TWS on this computer):
+
+    python3 scripts/run_bot.py --ibkr-paper
+
+That sets broker.yaml mode: ibkr_paper and market_data_source: ibkr for this run
+only. TWS must be open, logged into Paper Trading, with "Read-Only API" unticked.
+Without a live-data subscription IBKR sends 15-minute-DELAYED prices; the startup
+summary says which arrived, and delayed prices only test the plumbing.
+
+Otherwise it runs whatever config/broker.yaml says, which needs market_data_source:
+etrade or ibkr. With mode: paper, orders/fills/P&L stay in the local simulator
+even though the prices are real.
 
 Relative-volume baselines are seeded from the local historical cache
 (data_cache/historical, populated by scripts/fetch_historical_data_twelvedata.py).
@@ -20,7 +28,7 @@ If a symbol has no cached history the loop still runs, but that symbol will not
 produce entries; the startup summary says which.
 
 Usage:
-    python3 scripts/run_bot.py [poll_interval_seconds] [--baseline-days N]
+    python3 scripts/run_bot.py [poll_interval_seconds] [--baseline-days N] [--ibkr-paper]
 """
 
 import os
@@ -31,8 +39,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from config_loader import load_config, ConfigError  # noqa: E402
-from data.etrade_market_data import ETradeMarketDataProvider  # noqa: E402
+from config_loader import load_config, use_ibkr_paper, ConfigError  # noqa: E402
 from data.historical_data import HistoricalDataError, get_bars, group_bars_by_day  # noqa: E402
 from main import build_default_bot  # noqa: E402
 from models.signal import Decision  # noqa: E402
@@ -40,6 +47,20 @@ from models.signal import Decision  # noqa: E402
 
 
 BAR_MINUTES = 5
+
+_SESSIONS = {}
+
+
+def cached_sessions(symbol):
+    """The local cache's bars for `symbol`, grouped by session, loaded once per run:
+    each file holds years of 5-minute bars and takes ~0.5 s to parse, and both the
+    RVOL baselines and the IBKR volume check read it."""
+    if symbol not in _SESSIONS:
+        try:
+            _SESSIONS[symbol] = group_bars_by_day(get_bars(symbol))
+        except HistoricalDataError:
+            _SESSIONS[symbol] = {}
+    return _SESSIONS[symbol]
 
 
 def volume_baselines_from_cache(symbol, lookback_days):
@@ -52,10 +73,7 @@ def volume_baselines_from_cache(symbol, lookback_days):
     signal. Recent sessions only: a three-year average would understate a name whose
     volume has since doubled.
     """
-    try:
-        by_day = group_bars_by_day(get_bars(symbol))
-    except HistoricalDataError:
-        return {}
+    by_day = cached_sessions(symbol)
     recent = [by_day[d] for d in sorted(by_day)[-lookback_days:]]
     if not recent:
         return {}
@@ -79,6 +97,49 @@ def session_bar_index(now, market_open_hhmm):
     return int((now - open_dt).total_seconds() // (BAR_MINUTES * 60))
 
 
+def volume_check(provider, symbols):
+    """Median ratio of IBKR's session volume to the cached history's, over sessions
+    both have. The RVOL baselines come from the cache, so IBKR volume on a
+    different scale (odd lots or venues counted differently) would bias every RVOL
+    reading."""
+    ratios = []
+    for sym in symbols:
+        cached = cached_sessions(sym)
+        for day, total in provider.session_volumes(sym).items():
+            cached_total = sum(b.volume for b in cached.get(day, []))
+            if total > 0 and cached_total > 0:
+                ratios.append(total / cached_total)
+    if not ratios:
+        return None
+    ratios.sort()
+    return ratios[len(ratios) // 2], len(ratios)
+
+
+def ibkr_data_report(provider, symbols):
+    """Startup lines on what IBKR is actually sending. Empty for other providers."""
+    if not hasattr(provider, "data_delayed"):
+        return []
+    lines = []
+    delayed = provider.data_delayed()
+    if delayed is None:
+        lines.append("  Prices:            none received yet (market closed?)")
+    elif delayed:
+        lines.append("  Prices:            DELAYED ~15 min -- no live-data subscription. Good for "
+                     "testing the plumbing only;")
+        lines.append("                     entries and exits are decided on stale prices.")
+    else:
+        lines.append("  Prices:            LIVE")
+    if provider.failed:
+        lines.append(f"  NO DATA:           {', '.join(f'{s} ({e})' for s, e in sorted(provider.failed.items()))}")
+    check = volume_check(provider, symbols)
+    if check:
+        ratio, n = check
+        flag = "" if 0.8 <= ratio <= 1.25 else "  <-- RVOL will be biased; tell Claude"
+        lines.append(f"  Volume check:      IBKR / cached history = {ratio:.2f} "
+                     f"(median of {n} symbol-sessions){flag}")
+    return lines
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:]]
     baseline_days = 20
@@ -86,25 +147,39 @@ def main() -> int:
         i = args.index("--baseline-days")
         baseline_days = int(args[i + 1])
         del args[i:i + 2]
+    ibkr_paper = "--ibkr-paper" in args
+    if ibkr_paper:
+        args.remove("--ibkr-paper")
     poll_interval = int(args[0]) if args else 30
 
     try:
         config = load_config()
+        if ibkr_paper:
+            use_ibkr_paper(config)
     except ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         return 1
 
-    if config.broker.get("market_data_source", "memory") != "etrade":
+    source = config.broker.get("market_data_source", "memory")
+    if source not in ("etrade", "ibkr"):
         print(
-            "config/broker.yaml market_data_source must be 'etrade' to run this "
-            "live loop (it's currently 'memory', which never receives any data "
-            "unless a caller pushes it explicitly).",
+            "No live prices configured: run with --ibkr-paper, or set config/broker.yaml "
+            f"market_data_source to 'ibkr' or 'etrade' (it is '{source}', which never "
+            "receives any data unless a caller pushes it explicitly).",
             file=sys.stderr,
         )
         return 1
 
-    bot = build_default_bot(config)
-    assert isinstance(bot.data_provider, ETradeMarketDataProvider)
+    if ibkr_paper:
+        import logging
+        logging.getLogger("ib_async").setLevel(logging.CRITICAL)
+    try:
+        bot = build_default_bot(config)
+    except Exception as e:  # TWS not running, API off, live account (IBKRSafetyError)
+        print(f"Could not start: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    provider = bot.data_provider
+    wait = getattr(provider, "wait", time.sleep)
 
     tz = ZoneInfo(config.schedule.get("timezone", "America/New_York"))
     universe = config.auto_tradeable_universe()
@@ -115,11 +190,18 @@ def main() -> int:
     missing = sorted(s for s, b in baselines.items() if not b)
     market_open = config.schedule.get("market_open", "09:30")
 
+    if hasattr(provider, "subscribe"):
+        print(f"Subscribing to {len(all_symbols)} symbols (about a second each) ...")
+        provider.subscribe(all_symbols)
+        wait(3)
+
     print("=" * 70)
     print("STARTING LIVE BOT LOOP")
     print("=" * 70)
     print(f"  Broker:            {type(bot.broker).__name__}")
-    print(f"  Market data:       {type(bot.data_provider).__name__} (real E*TRADE sandbox quotes)")
+    print(f"  Market data:       {type(provider).__name__}")
+    for line in ibkr_data_report(provider, all_symbols):
+        print(line)
     print(f"  Universe ({len(universe)}):      {', '.join(universe)}")
     print(f"  Benchmarks ({len(benchmarks)}):    {', '.join(benchmarks)}")
     print(f"  RVOL baselines:    {len(all_symbols) - len(missing)}/{len(all_symbols)} symbols "
@@ -193,10 +275,22 @@ def main() -> int:
                 open_positions = len(bot.position_manager.open_positions())
                 print(f"[{now:%H:%M:%S}] heartbeat -- cycle {cycles}, open positions: {open_positions}")
 
-            time.sleep(poll_interval)
+            wait(poll_interval)
     except KeyboardInterrupt:
         print("\nStopped.")
         print(f"Total cycles: {cycles}, signals logged: {seen_signals}, trades closed: {seen_trades}")
+        open_now = [p.ticker for p in bot.position_manager.open_positions()]
+        if open_now:
+            print(f"STILL OPEN: {', '.join(open_now)} -- the bot is no longer managing these. "
+                  f"Restart it, or close them in TWS (scripts/ibkr_paper_flatten.py on paper).")
+    finally:
+        for thing in (provider, bot.broker):
+            for method in ("close", "disconnect"):
+                if hasattr(thing, method):
+                    try:
+                        getattr(thing, method)()
+                    except Exception:  # noqa: BLE001 -- best effort on the way out
+                        pass
     return 0
 
 

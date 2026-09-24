@@ -46,10 +46,39 @@ the pop-up left: it sold the extra AG share (market, $18.59) and a fresh query
 afterwards showed 0 open orders, 0 positions. The paper account was clean at the
 end of the day.
 
-**Not yet built:** a market-data feed from IBKR for the live loop
-(`scripts/run_bot.py` still needs `market_data_source: etrade`). That waits on
-the data subscription below. The bot's P&L also still uses the modelled costs, not
-IBKR's reported commissions (captured on each order as `Order.commission`).
+## Price feed (built 2026-09-24, not yet run against TWS)
+
+`src/data/ibkr_market_data.py` (`IBKRMarketDataProvider`), used when
+`market_data_source: ibkr`. Run the whole bot on the paper account with:
+
+    python3 scripts/run_bot.py --ibkr-paper
+
+That sets `mode: ibkr_paper` and `market_data_source: ibkr` for the one run, with
+the same paper-port checks as loading them from broker.yaml. Orders and prices share
+one TWS connection.
+
+* Bars: 5-minute TRADES from `reqHistoricalData(keepUpToDate=True)`, two sessions
+  deep, so the prior close is there for the gap. The last bar in the list is still
+  forming and is never exposed. If IBKR refuses the stream, the provider asks
+  again once per bar.
+* Quotes: `reqMktData` after `reqMarketDataType(3)`, which returns live data where
+  subscribed and delayed data otherwise. No valid bid and ask means no quote, and
+  the bot does not trade that symbol. No quote is ever made up.
+* The startup summary says **LIVE** or **DELAYED**. Delayed prices only test the
+  plumbing: entries and exits are decided on 15-minute-old prices, so an exit
+  limited at a stale bid can miss and print EXIT INCOMPLETE.
+* Volume check at startup: IBKR's session volume ÷ the cached history's, for
+  sessions both have. RVOL baselines still come from the local cache
+  (`data_cache/historical`), so if IBKR counts volume differently every RVOL
+  reading is biased. The summary flags a median ratio outside 0.8-1.25.
+* The loop waits with `ib.sleep`, not `time.sleep`: ib_async only processes IBKR's
+  messages while its event loop runs.
+
+Not yet handled: reconnecting if TWS restarts mid-session (TWS restarts itself
+daily, by default near midnight, so start the bot after that). RVOL baselines come
+from the cache, not IBKR, so the cache must be re-downloaded now and then to stay
+recent. The bot's P&L still uses modelled costs, not IBKR's reported commissions
+(captured on each order as `Order.commission`).
 
 ## 2026-09-24, 12:45 ET (market open), TWS paper, port 7497
 
