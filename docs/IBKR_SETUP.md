@@ -41,7 +41,10 @@ paper login. For the live login, set the precaution limits just above the bot's
 own ($2,500 per order) rather than leave a dialog that can hold orders.
 
 `scripts/ibkr_paper_flatten.py` cancels every open order and sells every position
-on the paper account (paper-guarded, asks for YES).
+on the paper account (paper-guarded, asks for YES). Used 2026-09-24 to clear what
+the pop-up left: it sold the extra AG share (market, $18.59) and a fresh query
+afterwards showed 0 open orders, 0 positions. The paper account was clean at the
+end of the day.
 
 **Not yet built:** a market-data feed from IBKR for the live loop
 (`scripts/run_bot.py` still needs `market_data_source: etrade`). That waits on
