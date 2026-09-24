@@ -37,6 +37,7 @@ Backtest baselines to compare against (19-ticker holdout, 568 sessions):
 | 2026-09-21 | -0.83% | 2171 | 3 | +$35.01 | 0.67 | benchmark confirmation (1098) | 3 trade(s) |
 | 2026-09-22 | +2.41% | 2122 | 5 | +$810.83 | 0.69 | low volume (1176) | 5 trade(s) |
 | 2026-09-23 | -1.42% | 2194 | 2 | -$38.49 | 0.83 | benchmark confirmation (1044) | BHP and SSRM both stopped at -1.00R; first row on the $5,000 cash config, other entry candidates refused by the two-slot and settled-cash limits |
+| 2026-09-24 | +0.54% | 2205 | 2 | -$29.64 | 0.69 | benchmark confirmation (955) | SLV gapped -1.50% then drifted up; CDE and EQX entered 12:20, both stopped at -1.00R; a 14:25 BHP candidate was refused by the settled-cash limit. The bot also ran on IBKR paper (delayed data) this afternoon but placed no trades |
 
 ## Routine reliability
 
@@ -137,7 +138,7 @@ tape was never up.
 
 ### Running tally
 
-**$5,000 cash basis (from 2026-09-23):** 1 sessions logged, 1 with trades, 0 with zero. Cumulative P&L **-$38.49** across 2 trades.
+**$5,000 cash basis (from 2026-09-23):** 2 sessions logged, 2 with trades, 0 with zero. Cumulative P&L **-$68.13** across 4 trades.
 
 **Old $100,000 basis (before 2026-09-23; divide by 12.5):** 8 sessions logged, 6 with trades, 2 with zero. Cumulative P&L **+$664.03** across 16 trades.
 
