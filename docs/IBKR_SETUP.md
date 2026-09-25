@@ -97,6 +97,13 @@ quote from bars: the delayed test was per symbol, and ib_async's
 symbols IBKR never messaged looked live. The feed is now judged as a whole: delayed if
 IBKR marked any symbol delayed and no symbol has a live quote.
 
+**Third run, 2026-09-25 from ~10:38 ET: working end to end.** Heartbeat:
+`bars today 38/38 (streaming 38), quotes 0/38 + 38 from bars, fresh 38/38`. Volume
+scale 0.76. Every symbol now reaches the strategy and gets a decision logged each cycle
+(low volume, below VWAP and benchmark confirmation, the same rejection mix as in
+backtests). Prices remain 15-minute delayed, so this proves the plumbing, not the
+strategy.
+
 Not yet handled: reconnecting if TWS restarts mid-session (TWS restarts itself
 daily, by default near midnight, so start the bot after that). RVOL baselines come
 from the cache, not IBKR, so the cache must be re-downloaded now and then to stay
