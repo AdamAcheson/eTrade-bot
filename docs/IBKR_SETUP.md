@@ -89,6 +89,14 @@ spread, and data counts as fresh while connected. Live data keeps the strict
 rules. Each heartbeat now prints a data line (bars today / streaming / quotes /
 from bars / fresh) so the next run shows which cause it was.
 
+**Second run, 2026-09-25 morning:** the startup summary showed `bars today 38/38
+(streaming 37), quotes 0/38 + 1 from bars, fresh 32/38`. So IBKR sends no delayed
+bid/ask at all without a subscription, and the bar stream works. But only 1 symbol got a
+quote from bars: the delayed test was per symbol, and ib_async's
+`Ticker.marketDataType` defaults to 1 (live) until IBKR says otherwise, so the 37
+symbols IBKR never messaged looked live. The feed is now judged as a whole: delayed if
+IBKR marked any symbol delayed and no symbol has a live quote.
+
 Not yet handled: reconnecting if TWS restarts mid-session (TWS restarts itself
 daily, by default near midnight, so start the bot after that). RVOL baselines come
 from the cache, not IBKR, so the cache must be re-downloaded now and then to stay

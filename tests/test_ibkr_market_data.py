@@ -463,3 +463,39 @@ def test_the_bot_evaluates_symbols_on_delayed_data(tmp_path):
                      SignalJournal(str(tmp_path / "s.jsonl")), TradeJournal(str(tmp_path / "t.jsonl")))
     bot.evaluate_and_maybe_enter(t, datetime(2026, 9, 24, 10, 3, tzinfo=ET))
     assert len(bot.signal_journal.signals) == 1
+
+
+class PerSymbolIB(FakeIB):
+    """Like TWS on 2026-09-25 with no subscription: IBKR marked ONE symbol delayed and
+    sent no quote for any. ib_async leaves the rest at its default, 1 (live)."""
+
+    def reqMktData(self, contract, *a):
+        mdt = 3 if contract.symbol == "AG" else 1
+        return SimpleNamespace(bid=math.nan, ask=math.nan, last=math.nan, marketDataType=mdt, time=None)
+
+
+def test_one_symbol_marked_delayed_makes_the_whole_feed_delayed():
+    ib = PerSymbolIB()
+    clock = Clock()
+    p = IBKRMarketDataProvider(ib, _contract(), clock=clock, synthetic_spread_pct=lambda s: 0.5)
+    syms = ["AG", "HL", "CDE"]
+    p.subscribe(syms)
+    for s in syms:
+        p.poll(s)
+    h = p.health(syms, clock.t, 30)
+    assert h["quotes_from_bars"] == 3 and h["fresh"] == 3
+
+
+def test_live_quotes_anywhere_mean_the_feed_is_live():
+    """With a subscription, one unsubscribed symbol reporting delayed must not relax
+    the rules for the whole feed."""
+    class Mixed(FakeIB):
+        def reqMktData(self, contract, *a):
+            if contract.symbol == "ZZZ":
+                return SimpleNamespace(bid=math.nan, ask=math.nan, last=math.nan, marketDataType=3, time=None)
+            return FakeIB.reqMktData(self, contract)
+    p = IBKRMarketDataProvider(Mixed(mdt=1), _contract(), clock=Clock(), synthetic_spread_pct=lambda s: 0.5)
+    p.subscribe(["AG", "ZZZ"])
+    p.poll("ZZZ")
+    assert p.data_delayed() is False
+    assert p.get_state("ZZZ").quote is None

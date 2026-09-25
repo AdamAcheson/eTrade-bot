@@ -157,7 +157,7 @@ class IBKRMarketDataProvider(MarketDataProvider):
         t = self._tickers[symbol]
         bid, ask, last = _valid(t.bid), _valid(t.ask), _valid(t.last)
         quote_time = getattr(t, "time", None)
-        delayed = getattr(t, "marketDataType", None) in DELAYED_TYPES
+        delayed = self.data_delayed() is True
         self.synthetic_quotes.discard(symbol)
         if bid and ask and ask >= bid:
             stamp = quote_time or wall
@@ -180,13 +180,23 @@ class IBKRMarketDataProvider(MarketDataProvider):
 
     # --- reporting -------------------------------------------------------------------
     def data_delayed(self) -> Optional[bool]:
-        """True if any symbol's quotes are arriving delayed, False if all are live,
-        None if nothing has arrived yet to tell."""
-        kinds = [getattr(t, "marketDataType", None) for t in self._tickers.values()]
-        kinds = [k for k in kinds if k]
-        if not kinds:
-            return None
-        return any(k in DELAYED_TYPES for k in kinds)
+        """The feed as a whole: True when IBKR has marked some symbol delayed and no
+        symbol has a live quote; False when live quotes are arriving; None when
+        nothing has arrived yet.
+
+        Judged across all symbols, not one by one: ib_async's Ticker.marketDataType
+        DEFAULTS to 1 (live) until IBKR says otherwise, so a symbol that has had no
+        tick at all looks live. On 2026-09-25 that left 37 of 38 symbols with no quote
+        and no fallback, because only one had been told it was delayed."""
+        told_delayed = any(getattr(t, "marketDataType", None) in DELAYED_TYPES
+                           for t in self._tickers.values())
+        live_quotes = any(getattr(t, "marketDataType", None) == 1 and _valid(t.bid) and _valid(t.ask)
+                          for t in self._tickers.values())
+        if live_quotes:
+            return False
+        if told_delayed:
+            return True
+        return None
 
     def health(self, symbols: List[str], now: datetime, staleness_limit_seconds: float) -> Dict[str, int]:
         """How many symbols the bot can actually evaluate right now, and why not."""
